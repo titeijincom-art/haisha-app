@@ -16,8 +16,9 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
+        // 1. deleteDoc と doc を追加しています
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         // ここに自分のFirebase設定を貼り付けてください！
         const firebaseConfig = {
@@ -32,13 +33,11 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // 地図の初期設定（日本全体が見えるように）
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        let markers = {}; // ピンを管理するための入れ物
+        let markers = {};
 
-        // Firebaseからリアルタイムでデータを取得
         const q = query(collection(db, "requests"), where("status", "==", "waiting"));
         
         onSnapshot(q, (snapshot) => {
@@ -47,19 +46,32 @@
                 const id = change.doc.id;
 
                 if (change.type === "added") {
-                    // 新しい依頼が来たら地図にピンを立てる
+                    // 2. ボタン付きのポップアップが出るように変更
                     const marker = L.marker([data.latitude, data.longitude])
                         .addTo(map)
-                        .bindPopup(`依頼者: ${data.name}<br>ステータス: ${data.status}`)
-                        .openPopup();
+                        .bindPopup(`
+                            <b>依頼者: ${data.name}</b><br>
+                            <button onclick="completeRequest('${id}')" style="margin-top:10px; padding:5px; cursor:pointer; background:#28a745; color:white; border:none; border-radius:3px;">✅ 迎えに行った(完了)</button>
+                        `);
                     markers[id] = marker;
                 } else if (change.type === "removed") {
-                    // 依頼が完了・削除されたらピンを消す
                     map.removeLayer(markers[id]);
                     delete markers[id];
                 }
             });
         });
+
+        // 3. 完了ボタンを押した時の動きを定義
+        window.completeRequest = async (id) => {
+            if (confirm("この依頼を完了にしますか？")) {
+                try {
+                    await deleteDoc(doc(db, "requests", id));
+                    alert("完了しました！地図からピンを消します。");
+                } catch (e) {
+                    console.error("エラーが発生しました: ", e);
+                }
+            }
+        };
     </script>
 </body>
 </html>
