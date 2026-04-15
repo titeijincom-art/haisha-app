@@ -11,14 +11,16 @@
         button { padding: 10px 20px; font-weight: bold; cursor: pointer; }
         #request-btn { background-color: #28a745; color: white; border: none; border-radius: 5px; }
         #status-message { text-align: center; font-size: 1.2em; font-weight: bold; margin: 15px; min-height: 1.5em; }
+        .legend { background: white; padding: 5px; border-radius: 5px; font-size: 12px; border: 1px solid #ccc; margin-bottom: 5px; text-align: center; }
     </style>
 </head>
 <body>
     <div id="status-message"></div>
+    <div class="legend">🔵 現在地 / 🔴 送迎場所（ドラッグで移動）</div>
     <div id="map"></div>
     <div class="btn-container">
         <button onclick="getCurrentLocation()">① 現在地を特定</button>
-        <button id="request-btn" onclick="requestTaxi()">② ここで配車を依頼</button>
+        <button id="request-btn" onclick="requestTaxi()">② 赤いピンの場所に呼ぶ</button>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -40,10 +42,21 @@
         const db = getFirestore(app);
 
         let userName = "ゲスト";
-        let marker;
+        let currentMarker; // 🔵 現在地ピン
+        let pickupMarker;  // 🔴 送迎場所ピン
 
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        // 赤色ピンのアイコン設定
+        const redIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
 
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
             if (liff.isLoggedIn()) {
@@ -56,21 +69,14 @@
             }
         });
 
-        // 監視処理（より確実な方法に変更）
         function watchMyRequest() {
-            // シンプルに「自分の名前」のデータだけを監視
             const q = query(collection(db, "requests"), where("name", "==", userName));
-            
             onSnapshot(q, (snapshot) => {
                 const statusDiv = document.getElementById("status-message");
-                
-                // 進行中のリクエストを探す
                 let activeRequest = null;
                 snapshot.forEach((doc) => {
                     const data = doc.data();
-                    if (data.status !== "completed") {
-                        activeRequest = data;
-                    }
+                    if (data.status !== "completed") activeRequest = data;
                 });
 
                 if (!activeRequest) {
@@ -78,7 +84,6 @@
                     return;
                 }
 
-                // メッセージ表示の切り替え
                 if (activeRequest.status === "arrived") {
                     statusDiv.innerText = "📍 到着しました！外でお待ちください。";
                     statusDiv.style.color = "red";
@@ -87,7 +92,6 @@
                     statusDiv.style.color = "#007bff";
                 } else {
                     statusDiv.innerText = "🚕 配車リクエストを送信済み...";
-                    statusDiv.style.color = "#007bff";
                 }
             });
         }
@@ -97,27 +101,37 @@
                 const { latitude, longitude } = position.coords;
                 const latlng = [latitude, longitude];
                 map.setView(latlng, 17);
-                if (marker) {
-                    marker.setLatLng(latlng);
+
+                // 🔵 現在地ピンの作成・更新（動かせない）
+                if (currentMarker) {
+                    currentMarker.setLatLng(latlng);
                 } else {
-                    marker = L.marker(latlng, { draggable: true }).addTo(map);
-                    marker.bindPopup("ピンを動かして微調整できます").openPopup();
+                    currentMarker = L.circleMarker(latlng, { radius: 10, color: 'blue', fillColor: '#3388ff', fillOpacity: 0.8 }).addTo(map);
+                    currentMarker.bindPopup("あなたは今ここにいます");
+                }
+
+                // 🔴 送迎場所ピンの作成・更新（動かせる）
+                if (pickupMarker) {
+                    pickupMarker.setLatLng(latlng);
+                } else {
+                    pickupMarker = L.marker(latlng, { draggable: true, icon: redIcon }).addTo(map);
+                    pickupMarker.bindPopup("送迎してほしい場所に動かしてください").openPopup();
                 }
             });
         };
 
         window.requestTaxi = async () => {
-            if (!marker) { alert("まずは現在地を特定してください"); return; }
-            const currentPos = marker.getLatLng();
+            if (!pickupMarker) { alert("まずは現在地を特定してください"); return; }
+            const pos = pickupMarker.getLatLng();
             try {
                 await addDoc(collection(db, "requests"), {
                     name: userName,
-                    latitude: currentPos.lat,
-                    longitude: currentPos.lng,
+                    latitude: pos.lat,
+                    longitude: pos.lng,
                     status: "waiting",
                     timestamp: serverTimestamp()
                 });
-                alert("指定した位置で依頼を送信しました！");
+                alert("赤いピンの位置で依頼を送信しました！");
             } catch (e) {
                 alert("送信エラー: " + e.message);
             }
