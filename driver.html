@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（高機能版）</title>
+    <title>ドライバー用画面（時間表示版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -12,6 +12,7 @@
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
         .btn-green { background:#28a745; margin-top: 10px; }
+        .time-label { color: #666; font-size: 0.9em; margin-bottom: 5px; display: block; }
     </style>
 </head>
 <body>
@@ -56,7 +57,6 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
-        // statusが 'completed' 以外の依頼を地図に表示
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
         
         onSnapshot(q, (snapshot) => {
@@ -65,6 +65,14 @@
                 const id = change.doc.id;
 
                 if (change.type === "added" || (change.type === "modified" && !markers[id])) {
+                    // 依頼時間のフォーマット処理
+                    let timeStr = "不明";
+                    if (data.timestamp) {
+                        const date = data.timestamp.toDate();
+                        timeStr = date.getHours().toString().padStart(2, '0') + ":" + 
+                                  date.getMinutes().toString().padStart(2, '0');
+                    }
+
                     let autoTime = 5;
                     if (driverLocation) {
                         const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
@@ -76,6 +84,7 @@
                         .bindPopup(`
                             <div style="min-width:160px">
                                 <b>依頼者: ${data.name}</b><br>
+                                <span class="time-label">🕒 依頼時刻: ${timeStr}</span>
                                 <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
                                 <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間を送信</button>
                                 <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着しました</button>
