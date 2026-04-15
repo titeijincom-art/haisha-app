@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（自動計算版）</title>
+    <title>ドライバー用画面（履歴保存版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         #map { height: 100vh; width: 100%; }
-        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-family: sans-serif; }
+        .btn-send { background:#007bff; color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; }
+        .btn-complete { background:#28a745; color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -17,7 +19,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, query, where, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
@@ -37,27 +39,27 @@
         let markers = {};
         let driverLocation = null;
 
-        // ドライバーの現在地をリアルタイムに追跡
+        // ドライバーの現在地を追跡
         navigator.geolocation.watchPosition((position) => {
             driverLocation = {
                 lat: position.coords.latitude,
                 lng: position.coords.longitude
             };
-            document.getElementById('driver-status').innerText = "ドライバーの位置取得済み";
+            document.getElementById('driver-status').innerText = "📍 ドライバーの位置を確認中";
         });
 
-        // 2点間の距離(km)を計算する関数
+        // 距離計算関数
         function getDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371; // 地球の半径 km
+            const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
                       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
                       Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
+        // statusが 'waiting' のものだけ地図に表示
         const q = query(collection(db, "requests"), where("status", "==", "waiting"));
         
         onSnapshot(q, (snapshot) => {
@@ -66,21 +68,22 @@
                 const id = change.doc.id;
 
                 if (change.type === "added") {
-                    // 自動計算（ドライバーの現在地があれば）
                     let autoTime = 5;
                     if (driverLocation) {
                         const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
-                        autoTime = Math.ceil((dist / 30) * 60) + 5; // 時速30km + 準備2分
+                        autoTime = Math.ceil((dist / 30) * 60) + 2;
                     }
 
                     const marker = L.marker([data.latitude, data.longitude])
                         .addTo(map)
                         .bindPopup(`
-                            <b>依頼者: ${data.name}</b><br>
-                            <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
-                            <button onclick="sendEta('${id}')" style="margin-top:5px; background:#007bff; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">⏳ 時間を送る</button>
-                            <hr>
-                            <button onclick="completeRequest('${id}')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">✅ 完了</button>
+                            <div style="min-width:150px">
+                                <b>依頼者: ${data.name}</b><br>
+                                <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
+                                <button class="btn-send" onclick="sendEta('${id}')">⏳ 時間を送信</button>
+                                <hr>
+                                <button class="btn-complete" onclick="completeRequest('${id}')">✅ 送迎完了</button>
+                            </div>
                         `);
                     markers[id] = marker;
                 } else if (change.type === "removed") {
@@ -92,18 +95,23 @@
             });
         });
 
+        // 到着予定時間を更新
         window.sendEta = async (id) => {
             const mins = document.getElementById(`time-${id}`).value;
             try {
                 await updateDoc(doc(db, "requests", id), { eta: mins });
-                alert("到着予定時間を送信しました！");
-            } catch (e) { alert("エラー: " + e.message); }
+                alert("到着予定を通知しました");
+            } catch (e) { console.error(e); }
         };
 
+        // statusを completed に更新（これで履歴に残る）
         window.completeRequest = async (id) => {
-            if (confirm("完了しますか？")) {
+            if (confirm("送迎を完了しますか？（履歴に保存されます）")) {
                 try {
-                    await deleteDoc(doc(db, "requests", id));
+                    await updateDoc(doc(db, "requests", id), { 
+                        status: "completed",
+                        completedAt: serverTimestamp() 
+                    });
                 } catch (e) { alert("エラー: " + e.message); }
             }
         };
