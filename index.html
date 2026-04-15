@@ -1,99 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>社内配車アプリ</title>
+    <title>配車アプリ（依頼側）</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        #map { height: 400px; width: 100%; margin-top: 10px; }
-        body { font-family: sans-serif; text-align: center; }
+        #map { height: 400px; width: 100%; margin-bottom: 10px; }
+        .btn-container { display: flex; gap: 10px; justify-content: center; }
+        button { padding: 10px 20px; font-weight: bold; cursor: pointer; }
+        #request-btn { background-color: #28a745; color: white; border: none; border-radius: 5px; }
     </style>
 </head>
 <body>
-    <h3>🚗 社内配車システム</h3>
-    <div id="user-name">読み込み中...</div>
     <div id="map"></div>
-    <button onclick="updateLocation()" style="margin-top:20px; padding:10px;">現在地を特定する</button>
+    <div class="btn-container">
+        <button onclick="getCurrentLocation()">① 現在地を特定する</button>
+        <button id="request-btn" onclick="requestTaxi()">② ここで配車を依頼</button>
+    </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-<script>
-    // あなたの Firebase 設定情報（画像から反映済み）
-    const firebaseConfig = {
-        apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
-        authDomain: "loser-12855.firebaseapp.com",
-        projectId: "loser-12855",
-        storageBucket: "loser-12855.firebasestorage.app",
-        messagingSenderId: "375707924539",
-        appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e",
-        measurementId: "G-YFL2RE9MLB"
-    };
+        // ここに自分のFirebase設定を貼り付けてください！
+        const firebaseConfig = {
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
+            authDomain: "loser-12855.firebaseapp.com",
+            projectId: "loser-12855",
+            storageBucket: "loser-12855.firebasestorage.app",
+            messagingSenderId: "375707924539",
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
+        };
 
-    // Firebaseの初期化
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
-    let map, marker, userProfile;
+        let userName = "ゲスト";
+        let marker;
 
-    // LIFFと地図の初期化
-    async function initApp() {
-        await liff.init({ liffId: "2009796540-v9rIRiac" });
-        if (!liff.isLoggedIn()) {
-            liff.login();
-        } else {
-            userProfile = await liff.getProfile();
-            document.getElementById('user-name').innerText = userProfile.displayName + "さん、こんにちは！";
-            
-            // 地図の初期表示
-            map = L.map('map').setView([35.681236, 139.767125], 15);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        }
-    }
+        // 地図の初期化
+        const map = L.map('map').setView([35.6812, 139.7671], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    // 現在地を特定する関数（前回作ったもの）
-    function updateLocation() {
-        navigator.geolocation.getCurrentPosition((position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            map.setView([lat, lng], 17);
-            if (marker) map.removeLayer(marker);
-            marker = L.marker([lat, lng]).addTo(map).bindPopup("現在地").openPopup();
-        }, (err) => { alert("位置情報が取れませんでした"); }, { enableHighAccuracy: true });
-    }
+        // LIFFの初期化
+        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
+            if (liff.isLoggedIn()) {
+                liff.getProfile().then(profile => {
+                    userName = profile.displayName;
+                });
+            } else {
+                liff.login();
+            }
+        });
 
-    // ★データをFirebaseに保存する関数★
-    async function sendRequest() {
-        if (!marker) {
-            alert("まず『現在地を特定する』を押してください！");
-            return;
-        }
-        const pos = marker.getLatLng();
+        // ① 現在地特定（ピンを動かせるように設定）
+        window.getCurrentLocation = () => {
+            navigator.geolocation.getCurrentPosition((position) => {
+                const { latitude, longitude } = position.coords;
+                const latlng = [latitude, longitude];
 
-        try {
-            await db.collection("requests").add({
-                name: userProfile.displayName,
-                latitude: pos.lat,
-                longitude: pos.lng,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                status: "waiting"
+                map.setView(latlng, 17);
+
+                if (marker) {
+                    marker.setLatLng(latlng);
+                } else {
+                    // draggable: true を追加！これで動かせます
+                    marker = L.marker(latlng, { draggable: true }).addTo(map);
+                    marker.bindPopup("ピンを長押しして微調整できます").openPopup();
+                }
             });
-            alert("配車依頼を送信しました！");
-        } catch (e) {
-            alert("送信エラー: " + e.message);
-        }
-    }
+        };
 
-    initApp();
-</script>
+        // ② 配車依頼（「現在のピンの位置」を送信）
+        window.requestTaxi = async () => {
+            if (!marker) {
+                alert("まずは現在地を特定してください");
+                return;
+            }
 
-<div style="margin-top: 10px;">
-    <button onclick="updateLocation()" style="padding:10px;">① 現在地を特定する</button>
-    <button onclick="sendRequest()" style="background-color: #00B900; color: white; padding: 10px; border: none; border-radius: 5px; margin-left: 5px;">
-        ② ここで配車を依頼
-    </button>
-</div></body>
+            // marker.getLatLng() を使うことで、移動後の座標を取得
+            const currentPos = marker.getLatLng();
+
+            try {
+                await addDoc(collection(db, "requests"), {
+                    name: userName,
+                    latitude: currentPos.lat,
+                    longitude: currentPos.lng,
+                    status: "waiting",
+                    timestamp: serverTimestamp()
+                });
+                alert("指定した位置で依頼を送信しました！");
+            } catch (e) {
+                alert("送信エラー: " + e.message);
+            }
+        };
+    </script>
+</body>
 </html>
