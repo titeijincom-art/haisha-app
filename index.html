@@ -6,22 +6,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 400px; width: 100%; margin-bottom: 10px; }
-        .btn-container { display: flex; gap: 10px; justify-content: center; }
-        button { padding: 10px 20px; font-weight: bold; cursor: pointer; }
-        #request-btn { background-color: #28a745; color: white; border: none; border-radius: 5px; }
-        #status-message { text-align: center; font-size: 1.2em; font-weight: bold; margin: 15px; min-height: 1.5em; }
-        .legend { background: white; padding: 5px; border-radius: 5px; font-size: 12px; border: 1px solid #ccc; margin-bottom: 5px; text-align: center; }
+        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; }
+        #map { height: 350px; width: 100%; border-radius: 8px; margin-bottom: 10px; }
+        .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
+        .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
+        .tab.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #28a745; }
+        .input-group { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: none; }
+        .input-group.active { display: block; }
+        input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
+        #status-message { text-align: center; font-weight: bold; margin: 10px; min-height: 1.5em; }
+        .legend { font-size: 12px; text-align: center; color: #666; margin-bottom: 5px; }
     </style>
 </head>
 <body>
+
     <div id="status-message"></div>
-    <div class="legend">🔵 現在地 / 🔴 送迎場所（ドラッグで移動）</div>
-    <div id="map"></div>
-    <div class="btn-container">
-        <button onclick="getCurrentLocation()">① 現在地を特定</button>
-        <button id="request-btn" onclick="requestTaxi()">② 赤いピンの場所に呼ぶ</button>
+
+    <div class="tabs">
+        <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
+        <div id="tab-plan" class="tab" onclick="switchMode('plan')">予約する</div>
     </div>
+
+    <div id="plan-input" class="input-group">
+        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
+        <input type="datetime-local" id="scheduled-time">
+    </div>
+
+    <div class="legend">🔵 現在地 / 🔴 送迎場所（ドラッグ移動）</div>
+    <div id="map"></div>
+    
+    <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
+    <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -42,99 +58,79 @@
         const db = getFirestore(app);
 
         let userName = "ゲスト";
-        let currentMarker; // 🔵 現在地ピン
-        let pickupMarker;  // 🔴 送迎場所ピン
+        let currentMarker, pickupMarker;
+        let mode = 'now';
 
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 赤色ピンのアイコン設定
         const redIcon = new L.Icon({
             iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
             shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34],
-            shadowSize: [41, 41]
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
         });
+
+        // モード切り替え
+        window.switchMode = (newMode) => {
+            mode = newMode;
+            document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
+            document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
+            document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
+            document.getElementById('request-btn').innerText = (mode === 'now') ? '今すぐ呼ぶ' : '予約を確定する';
+        };
 
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
             if (liff.isLoggedIn()) {
-                liff.getProfile().then(profile => {
-                    userName = profile.displayName;
-                    watchMyRequest();
-                });
-            } else {
-                liff.login();
-            }
+                liff.getProfile().then(p => { userName = p.displayName; watchMyRequest(); });
+            } else { liff.login(); }
         });
 
         function watchMyRequest() {
             const q = query(collection(db, "requests"), where("name", "==", userName));
             onSnapshot(q, (snapshot) => {
                 const statusDiv = document.getElementById("status-message");
-                let activeRequest = null;
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.status !== "completed") activeRequest = data;
-                });
-
-                if (!activeRequest) {
-                    statusDiv.innerText = "";
-                    return;
-                }
-
-                if (activeRequest.status === "arrived") {
-                    statusDiv.innerText = "📍 到着しました！外でお待ちください。";
-                    statusDiv.style.color = "red";
-                } else if (activeRequest.eta) {
-                    statusDiv.innerText = `🚗 あと約 ${activeRequest.eta} 分で到着します！`;
-                    statusDiv.style.color = "#007bff";
-                } else {
-                    statusDiv.innerText = "🚕 配車リクエストを送信済み...";
-                }
+                let active = null;
+                snapshot.forEach(doc => { if (doc.data().status !== "completed") active = doc.data(); });
+                if (!active) { statusDiv.innerText = ""; return; }
+                if (active.status === "arrived") { statusDiv.innerText = "📍 到着しました！"; statusDiv.style.color = "red"; }
+                else if (active.eta) { statusDiv.innerText = `🚗 あと約 ${active.eta} 分で到着！`; statusDiv.style.color = "#007bff"; }
+                else { statusDiv.innerText = active.scheduledTime ? `📅 ${active.scheduledTime.replace('T', ' ')} に予約済み` : "🚕 依頼送信済み..."; }
             });
         }
 
         window.getCurrentLocation = () => {
-            navigator.geolocation.getCurrentPosition((position) => {
-                const { latitude, longitude } = position.coords;
-                const latlng = [latitude, longitude];
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
                 map.setView(latlng, 17);
-
-                // 🔵 現在地ピンの作成・更新（動かせない）
-                if (currentMarker) {
-                    currentMarker.setLatLng(latlng);
-                } else {
-                    currentMarker = L.circleMarker(latlng, { radius: 10, color: 'blue', fillColor: '#3388ff', fillOpacity: 0.8 }).addTo(map);
-                    currentMarker.bindPopup("あなたは今ここにいます");
-                }
-
-                // 🔴 送迎場所ピンの作成・更新（動かせる）
-                if (pickupMarker) {
-                    pickupMarker.setLatLng(latlng);
-                } else {
-                    pickupMarker = L.marker(latlng, { draggable: true, icon: redIcon }).addTo(map);
-                    pickupMarker.bindPopup("送迎してほしい場所に動かしてください").openPopup();
-                }
+                if (currentMarker) currentMarker.setLatLng(latlng);
+                else currentMarker = L.circleMarker(latlng, { radius: 8, color: 'blue' }).addTo(map);
+                if (pickupMarker) pickupMarker.setLatLng(latlng);
+                else pickupMarker = L.marker(latlng, { draggable: true, icon: redIcon }).addTo(map);
             });
         };
 
         window.requestTaxi = async () => {
-            if (!pickupMarker) { alert("まずは現在地を特定してください"); return; }
+            if (!pickupMarker) { alert("位置を取得してください"); return; }
             const pos = pickupMarker.getLatLng();
+            const scheduledTime = document.getElementById('scheduled-time').value;
+
+            if (mode === 'plan' && !scheduledTime) {
+                alert("予約時間を選択してください");
+                return;
+            }
+
             try {
                 await addDoc(collection(db, "requests"), {
                     name: userName,
                     latitude: pos.lat,
                     longitude: pos.lng,
                     status: "waiting",
+                    type: mode, // 'now' か 'plan'
+                    scheduledTime: mode === 'plan' ? scheduledTime : null,
                     timestamp: serverTimestamp()
                 });
-                alert("赤いピンの位置で依頼を送信しました！");
-            } catch (e) {
-                alert("送信エラー: " + e.message);
-            }
+                alert(mode === 'now' ? "依頼を送信しました！" : "予約を完了しました！");
+            } catch (e) { alert("エラー: " + e.message); }
         };
     </script>
 </body>
