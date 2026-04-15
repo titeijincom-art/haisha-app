@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（時間表示版）</title>
+    <title>ドライバー用画面（日時表示版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -12,7 +12,7 @@
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
         .btn-green { background:#28a745; margin-top: 10px; }
-        .time-label { color: #666; font-size: 0.9em; margin-bottom: 5px; display: block; }
+        .time-label { color: #666; font-size: 0.85em; margin-bottom: 8px; display: block; background: #f8f9fa; padding: 4px; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -65,12 +65,15 @@
                 const id = change.doc.id;
 
                 if (change.type === "added" || (change.type === "modified" && !markers[id])) {
-                    // 依頼時間のフォーマット処理
-                    let timeStr = "不明";
+                    // 日付と時刻のフォーマット処理
+                    let dateTimeStr = "不明";
                     if (data.timestamp) {
-                        const date = data.timestamp.toDate();
-                        timeStr = date.getHours().toString().padStart(2, '0') + ":" + 
-                                  date.getMinutes().toString().padStart(2, '0');
+                        const d = data.timestamp.toDate();
+                        const month = d.getMonth() + 1;
+                        const date = d.getDate();
+                        const hour = d.getHours().toString().padStart(2, '0');
+                        const min = d.getMinutes().toString().padStart(2, '0');
+                        dateTimeStr = `${month}/${date} ${hour}:${min}`;
                     }
 
                     let autoTime = 5;
@@ -84,7 +87,7 @@
                         .bindPopup(`
                             <div style="min-width:160px">
                                 <b>依頼者: ${data.name}</b><br>
-                                <span class="time-label">🕒 依頼時刻: ${timeStr}</span>
+                                <span class="time-label">📅 依頼: ${dateTimeStr}</span>
                                 <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
                                 <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間を送信</button>
                                 <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着しました</button>
@@ -115,7 +118,7 @@
         };
 
         window.completeRequest = async (id) => {
-            if (confirm("送迎を完了しますか？（履歴に保存されます）")) {
+            if (confirm("送迎を完了しますか？")) {
                 try {
                     await updateDoc(doc(db, "requests", id), { 
                         status: "completed",
