@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（全機能統合版）</title>
+    <title>ドライバー用画面（表示修正版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -34,6 +34,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
         import { getFirestore, collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
+        // --- ここにご自身のFirebase設定を入れてください ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
             authDomain: "loser-12855.firebaseapp.com",
@@ -67,23 +68,35 @@
             listDiv.innerHTML = "";
             let currentRequests = [];
             snapshot.forEach(doc => currentRequests.push({ id: doc.id, ...doc.data() }));
-            currentRequests.sort((a, b) => (a.scheduledTime || "") > (b.scheduledTime || "") ? 1 : -1);
+            
+            // 予約日時順にソート（空のものは後ろへ）
+            currentRequests.sort((a, b) => (a.scheduledTime || "9999") > (b.scheduledTime || "9999") ? 1 : -1);
 
             const currentIds = currentRequests.map(r => r.id);
-            Object.keys(markers).forEach(mid => { if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; } });
+            Object.keys(markers).forEach(mid => { 
+                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; } 
+            });
 
             currentRequests.forEach((data) => {
                 const id = data.id;
                 const isPlan = data.type === 'plan';
-                if (!isPlan || isToday(data.scheduledTime)) updateMarker(data);
+                
+                // 地図表示（当日のみ）
+                if (!isPlan || isToday(data.scheduledTime)) {
+                    updateMarker(data);
+                }
 
+                // リスト表示
                 const item = document.createElement('div');
                 item.className = `reserve-item ${data.type}`;
                 const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
-                item.innerHTML = `<h4>${data.name} <span style="font-size:0.7em;">${displayDate}</span></h4><div class="address-text">📍 ${data.address || "住所不明"}</div>`;
+                item.innerHTML = `
+                    <h4>${data.name} <span style="font-size:0.75em; background:#eee; padding:2px 5px; border-radius:4px;">${displayDate}</span></h4>
+                    <div class="address-text">📍 ${data.address || "住所不明"}</div>
+                `;
                 
                 item.onclick = () => {
-                    if (!markers[id]) updateMarker(data);
+                    if (!markers[id]) updateMarker(data); // 未表示の予約ピンを一時作成
                     map.setView([data.latitude, data.longitude], 16);
                     markers[id].openPopup();
                 };
@@ -94,17 +107,44 @@
         function updateMarker(data) {
             const id = data.id;
             const icon = data.type === 'plan' ? icons.orange : icons.green;
+            const isPlan = data.type === 'plan';
+            const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ`;
+            const address = data.address || "住所不明";
+
             if (markers[id]) map.removeLayer(markers[id]);
+
+            // ポップアップの内容を構成（予約時間を確実に含める）
+            const popupContent = `
+                <div style="min-width:200px">
+                    <b style="font-size:1.1em;">${data.name} 様</b><br>
+                    <div style="color:#d9534f; font-weight:bold; margin-top:5px;">${displayDate}</div>
+                    <div style="font-size:0.85em; color:#666; margin:8px 0; background:#f9f9f9; padding:5px; border-radius:3px; border:1px solid #eee;">
+                        📍 ${address}
+                    </div>
+                    <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button>
+                    <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button>
+                    <hr style="border:0; border-top:1px solid #ddd; margin:10px 0;">
+                    <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 送迎完了</button>
+                </div>
+            `;
+
             markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
-                .bindPopup(`<div style="min-width:200px"><b>${data.name}様</b><br><div style="font-size:0.8em; color:#666; margin:5px 0;">${data.address || "住所不明"}</div><button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button><button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button><button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button></div>`);
+                .bindPopup(popupContent);
         }
 
         window.sendEta = async (id) => {
             const mins = prompt("到着までの時間は？(分)", "5");
             if(mins) await updateDoc(doc(db, "requests", id), { eta: mins });
         };
-        window.sendArrival = async (id) => { await updateDoc(doc(db, "requests", id), { status: "arrived" }); alert("到着を通知しました"); };
-        window.completeRequest = async (id) => { if (confirm("送迎を完了しますか？")) await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); };
+        window.sendArrival = async (id) => { 
+            await updateDoc(doc(db, "requests", id), { status: "arrived" }); 
+            alert("到着を通知しました"); 
+        };
+        window.completeRequest = async (id) => { 
+            if (confirm("送迎を完了しますか？")) {
+                await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); 
+            }
+        };
     </script>
 </body>
 </html>
