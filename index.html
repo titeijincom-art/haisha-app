@@ -10,12 +10,14 @@
         .btn-container { display: flex; gap: 10px; justify-content: center; }
         button { padding: 10px 20px; font-weight: bold; cursor: pointer; }
         #request-btn { background-color: #28a745; color: white; border: none; border-radius: 5px; }
+        #status-message { text-align: center; font-size: 1.2em; font-weight: bold; color: #007bff; margin: 15px; min-height: 1.5em; }
     </style>
 </head>
 <body>
+    <div id="status-message"></div>
     <div id="map"></div>
     <div class="btn-container">
-        <button onclick="getCurrentLocation()">① 現在地を特定する</button>
+        <button onclick="getCurrentLocation()">① 現在地を特定</button>
         <button id="request-btn" onclick="requestTaxi()">② ここで配車を依頼</button>
     </div>
 
@@ -23,9 +25,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-        // ここに自分のFirebase設定を貼り付けてください！
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
             authDomain: "loser-12855.firebaseapp.com",
@@ -41,49 +42,57 @@
         let userName = "ゲスト";
         let marker;
 
-        // 地図の初期化
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // LIFFの初期化
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
             if (liff.isLoggedIn()) {
                 liff.getProfile().then(profile => {
                     userName = profile.displayName;
+                    watchMyRequest(); // 自分の依頼の監視を開始
                 });
             } else {
                 liff.login();
             }
         });
 
-        // ① 現在地特定（ピンを動かせるように設定）
+        // 自分の依頼（eta）をリアルタイムで監視する
+        function watchMyRequest() {
+            const q = query(collection(db, "requests"), where("name", "==", userName));
+            onSnapshot(q, (snapshot) => {
+                const statusDiv = document.getElementById("status-message");
+                if (snapshot.empty) {
+                    statusDiv.innerText = "";
+                    return;
+                }
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.eta) {
+                        statusDiv.innerText = `🚗 あと約 ${data.eta} 分で到着します！`;
+                    } else {
+                        statusDiv.innerText = "🚕 配車を待っています...";
+                    }
+                });
+            });
+        }
+
         window.getCurrentLocation = () => {
             navigator.geolocation.getCurrentPosition((position) => {
                 const { latitude, longitude } = position.coords;
                 const latlng = [latitude, longitude];
-
                 map.setView(latlng, 17);
-
                 if (marker) {
                     marker.setLatLng(latlng);
                 } else {
-                    // draggable: true を追加！これで動かせます
                     marker = L.marker(latlng, { draggable: true }).addTo(map);
-                    marker.bindPopup("ピンを長押しして微調整できます").openPopup();
+                    marker.bindPopup("ピンを動かして微調整できます").openPopup();
                 }
             });
         };
 
-        // ② 配車依頼（「現在のピンの位置」を送信）
         window.requestTaxi = async () => {
-            if (!marker) {
-                alert("まずは現在地を特定してください");
-                return;
-            }
-
-            // marker.getLatLng() を使うことで、移動後の座標を取得
+            if (!marker) { alert("まずは現在地を特定してください"); return; }
             const currentPos = marker.getLatLng();
-
             try {
                 await addDoc(collection(db, "requests"), {
                     name: userName,
