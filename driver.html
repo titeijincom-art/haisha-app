@@ -1,15 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（履歴保存版）</title>
+    <title>ドライバー用画面（高機能版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         #map { height: 100vh; width: 100%; }
         .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-family: sans-serif; }
-        .btn-send { background:#007bff; color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; }
-        .btn-complete { background:#28a745; color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 10px; font-weight: bold; }
+        .btn-action { color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; font-weight: bold; }
+        .btn-blue { background:#007bff; }
+        .btn-yellow { background:#ffc107; color: black; }
+        .btn-green { background:#28a745; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -39,16 +41,11 @@
         let markers = {};
         let driverLocation = null;
 
-        // ドライバーの現在地を追跡
         navigator.geolocation.watchPosition((position) => {
-            driverLocation = {
-                lat: position.coords.latitude,
-                lng: position.coords.longitude
-            };
+            driverLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
             document.getElementById('driver-status').innerText = "📍 ドライバーの位置を確認中";
         });
 
-        // 距離計算関数
         function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -59,15 +56,15 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
-        // statusが 'waiting' のものだけ地図に表示
-        const q = query(collection(db, "requests"), where("status", "==", "waiting"));
+        // statusが 'completed' 以外の依頼を地図に表示
+        const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
         
         onSnapshot(q, (snapshot) => {
             snapshot.docChanges().forEach((change) => {
                 const data = change.doc.data();
                 const id = change.doc.id;
 
-                if (change.type === "added") {
+                if (change.type === "added" || (change.type === "modified" && !markers[id])) {
                     let autoTime = 5;
                     if (driverLocation) {
                         const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
@@ -77,25 +74,22 @@
                     const marker = L.marker([data.latitude, data.longitude])
                         .addTo(map)
                         .bindPopup(`
-                            <div style="min-width:150px">
+                            <div style="min-width:160px">
                                 <b>依頼者: ${data.name}</b><br>
                                 <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
-                                <button class="btn-send" onclick="sendEta('${id}')">⏳ 時間を送信</button>
+                                <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間を送信</button>
+                                <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着しました</button>
                                 <hr>
-                                <button class="btn-complete" onclick="completeRequest('${id}')">✅ 送迎完了</button>
+                                <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 送迎完了</button>
                             </div>
                         `);
                     markers[id] = marker;
                 } else if (change.type === "removed") {
-                    if (markers[id]) {
-                        map.removeLayer(markers[id]);
-                        delete markers[id];
-                    }
+                    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
                 }
             });
         });
 
-        // 到着予定時間を更新
         window.sendEta = async (id) => {
             const mins = document.getElementById(`time-${id}`).value;
             try {
@@ -104,7 +98,13 @@
             } catch (e) { console.error(e); }
         };
 
-        // statusを completed に更新（これで履歴に残る）
+        window.sendArrival = async (id) => {
+            try {
+                await updateDoc(doc(db, "requests", id), { status: "arrived" });
+                alert("到着を通知しました！");
+            } catch (e) { alert("エラー: " + e.message); }
+        };
+
         window.completeRequest = async (id) => {
             if (confirm("送迎を完了しますか？（履歴に保存されます）")) {
                 try {
