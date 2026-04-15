@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（予約対応版）</title>
+    <title>ドライバー用画面（ピン色分け版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -13,11 +13,11 @@
         .btn-yellow { background:#ffc107; color: black; }
         .btn-green { background:#28a745; margin-top: 10px; }
         .time-label { color: #666; font-size: 0.85em; margin-bottom: 5px; display: block; background: #f8f9fa; padding: 4px; border-radius: 3px; }
-        .plan-label { color: #d9534f; font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 5px; }
+        .plan-label { font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 5px; }
     </style>
 </head>
 <body>
-    <div class="info-box">🚕 配車待機中...<br><small id="driver-status">位置取得中...</small></div>
+    <div class="info-box">🚕 運行管理画面<br><small id="driver-status">位置取得中...</small></div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -40,12 +40,25 @@
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+        // --- ピンのアイコン設定 ---
+        const greenIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
+        const orangeIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
         let markers = {};
         let driverLocation = null;
 
         navigator.geolocation.watchPosition((position) => {
             driverLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
-            document.getElementById('driver-status').innerText = "📍 ドライバーの位置を確認中";
+            document.getElementById('driver-status').innerText = "🟢 オンライン (当日リクエスト表示中)";
         });
 
         function getDistance(lat1, lon1, lat2, lon2) {
@@ -58,6 +71,16 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
+        // 当日判定
+        function isToday(dateStr) {
+            if (!dateStr) return true;
+            const today = new Date();
+            const target = new Date(dateStr);
+            return today.getFullYear() === target.getFullYear() &&
+                   today.getMonth() === target.getMonth() &&
+                   today.getDate() === target.getDate();
+        }
+
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
         
         onSnapshot(q, (snapshot) => {
@@ -65,18 +88,26 @@
                 const data = change.doc.data();
                 const id = change.doc.id;
 
+                // 明日以降の予約はピンを表示させない（削除処理）
+                if (data.type === 'plan' && !isToday(data.scheduledTime)) {
+                    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+                    return; 
+                }
+
                 if (change.type === "added" || (change.type === "modified" && !markers[id])) {
-                    // 依頼時間のフォーマット
                     let dateTimeStr = "不明";
                     if (data.timestamp) {
                         const d = data.timestamp.toDate();
                         dateTimeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
                     }
 
-                    // 予約情報の作成
-                    const planText = data.type === 'plan' ? 
-                        `<span class="plan-label">📅 予約希望: ${data.scheduledTime.replace('T', ' ')}</span>` : 
-                        `<span class="plan-label" style="color:#28a745;">⚡ 今すぐ呼ぶ</span>`;
+                    // --- モードによる表示の切り分け ---
+                    const isPlan = data.type === 'plan';
+                    const icon = isPlan ? orangeIcon : greenIcon;
+                    const planLabelColor = isPlan ? '#f0ad4e' : '#28a745';
+                    const planText = isPlan ? 
+                        `<span class="plan-label" style="color:${planLabelColor};">📅 当日予約: ${data.scheduledTime.split('T')[1]}</span>` : 
+                        `<span class="plan-label" style="color:${planLabelColor};">⚡ 今すぐ呼ぶ</span>`;
 
                     let autoTime = 5;
                     if (driverLocation) {
@@ -84,7 +115,7 @@
                         autoTime = Math.ceil((dist / 30) * 60) + 2;
                     }
 
-                    const marker = L.marker([data.latitude, data.longitude])
+                    const marker = L.marker([data.latitude, data.longitude], { icon: icon })
                         .addTo(map)
                         .bindPopup(`
                             <div style="min-width:180px">
@@ -105,29 +136,17 @@
             });
         });
 
+        // 共通関数（以前と同じ）
         window.sendEta = async (id) => {
             const mins = document.getElementById(`time-${id}`).value;
-            try {
-                await updateDoc(doc(db, "requests", id), { eta: mins });
-                alert("到着予定を通知しました");
-            } catch (e) { console.error(e); }
+            try { await updateDoc(doc(db, "requests", id), { eta: mins }); alert("通知しました"); } catch (e) { console.error(e); }
         };
-
         window.sendArrival = async (id) => {
-            try {
-                await updateDoc(doc(db, "requests", id), { status: "arrived" });
-                alert("到着を通知しました！");
-            } catch (e) { alert("エラー: " + e.message); }
+            try { await updateDoc(doc(db, "requests", id), { status: "arrived" }); alert("到着を通知しました！"); } catch (e) { alert(e.message); }
         };
-
         window.completeRequest = async (id) => {
-            if (confirm("送迎を完了しますか？（履歴に保存されます）")) {
-                try {
-                    await updateDoc(doc(db, "requests", id), { 
-                        status: "completed",
-                        completedAt: serverTimestamp() 
-                    });
-                } catch (e) { alert("エラー: " + e.message); }
+            if (confirm("送迎を完了しますか？")) {
+                try { await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); } catch (e) { alert(e.message); }
             }
         };
     </script>
