@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（リスト連動強化版）</title>
+    <title>ドライバー用画面（全機能統合版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -14,7 +14,7 @@
         .reserve-item.now { border-left-color: #28a745; }
         .reserve-item.plan { border-left-color: #f0ad4e; }
         .reserve-item h4 { margin: 0 0 5px 0; display: flex; justify-content: space-between; }
-        .time-badge { font-size: 0.8em; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; }
+        .address-text { font-size: 0.85em; color: #444; margin-top: 5px; background: #eee; padding: 4px; border-radius: 3px; line-height: 1.4; }
         .btn-action { color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; font-weight: bold; }
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
@@ -42,7 +42,6 @@
             messagingSenderId: "375707924539",
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
         };
-
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
@@ -55,7 +54,6 @@
         };
 
         let markers = {};
-        let currentRequests = [];
 
         function isToday(dateStr) {
             if (!dateStr) return true;
@@ -64,52 +62,31 @@
         }
 
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
-        
         onSnapshot(q, (snapshot) => {
             const listDiv = document.getElementById('reserve-list');
             listDiv.innerHTML = "";
-            currentRequests = [];
+            let currentRequests = [];
             snapshot.forEach(doc => currentRequests.push({ id: doc.id, ...doc.data() }));
-            
-            // 予約日時順にソート
             currentRequests.sort((a, b) => (a.scheduledTime || "") > (b.scheduledTime || "") ? 1 : -1);
 
-            // 当日分のピンを更新・非当日分のピンを削除
             const currentIds = currentRequests.map(r => r.id);
-            Object.keys(markers).forEach(mid => {
-                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; }
-            });
+            Object.keys(markers).forEach(mid => { if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; } });
 
             currentRequests.forEach((data) => {
                 const id = data.id;
                 const isPlan = data.type === 'plan';
-                const today = isToday(data.scheduledTime);
+                if (!isPlan || isToday(data.scheduledTime)) updateMarker(data);
 
-                // 基本ルール：当日分のみ常時ピンを表示
-                if (!isPlan || today) {
-                    updateMarker(data);
-                }
-
-                // 一覧リストの作成
                 const item = document.createElement('div');
                 item.className = `reserve-item ${data.type}`;
                 const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
+                item.innerHTML = `<h4>${data.name} <span style="font-size:0.7em;">${displayDate}</span></h4><div class="address-text">📍 ${data.address || "住所不明"}</div>`;
                 
-                item.innerHTML = `
-                    <h4>${data.name} <span class="time-badge">${displayDate}</span></h4>
-                    <div style="font-size: 0.85em; color: #555;">📍 タップして場所を確認</div>
-                `;
-                
-                // 【重要】リストクリック時の動作
                 item.onclick = () => {
-                    // もしピンがなければ一時的に作成
-                    if (!markers[id]) {
-                        updateMarker(data);
-                    }
+                    if (!markers[id]) updateMarker(data);
                     map.setView([data.latitude, data.longitude], 16);
                     markers[id].openPopup();
                 };
-                
                 listDiv.appendChild(item);
             });
         });
@@ -117,20 +94,9 @@
         function updateMarker(data) {
             const id = data.id;
             const icon = data.type === 'plan' ? icons.orange : icons.green;
-            const isPlan = data.type === 'plan';
-            
             if (markers[id]) map.removeLayer(markers[id]);
-
             markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
-                .bindPopup(`
-                    <div style="min-width:160px">
-                        <b>${data.name}</b><br>
-                        ${isPlan ? '📅 予約希望' : '⚡ 今すぐ'}<br>
-                        <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button>
-                        <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button>
-                        <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button>
-                    </div>
-                `);
+                .bindPopup(`<div style="min-width:200px"><b>${data.name}様</b><br><div style="font-size:0.8em; color:#666; margin:5px 0;">${data.address || "住所不明"}</div><button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button><button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button><button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button></div>`);
         }
 
         window.sendEta = async (id) => {
@@ -138,9 +104,7 @@
             if(mins) await updateDoc(doc(db, "requests", id), { eta: mins });
         };
         window.sendArrival = async (id) => { await updateDoc(doc(db, "requests", id), { status: "arrived" }); alert("到着を通知しました"); };
-        window.completeRequest = async (id) => {
-            if (confirm("送迎を完了しますか？")) await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() });
-        };
+        window.completeRequest = async (id) => { if (confirm("送迎を完了しますか？")) await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); };
     </script>
 </body>
 </html>
