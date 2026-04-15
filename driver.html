@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ドライバー用画面</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 100vh; width: 100%; }
+        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+    <div class="info-box">🚕 配車リクエスト待機中...</div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+
+        // ここに自分のFirebase設定を貼り付けてください！
+        const firebaseConfig = {
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
+            authDomain: "loser-12855.firebaseapp.com",
+            projectId: "loser-12855",
+            storageBucket: "loser-12855.firebasestorage.app",
+            messagingSenderId: "375707924539",
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 地図の初期設定（日本全体が見えるように）
+        const map = L.map('map').setView([35.6812, 139.7671], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        let markers = {}; // ピンを管理するための入れ物
+
+        // Firebaseからリアルタイムでデータを取得
+        const q = query(collection(db, "requests"), where("status", "==", "waiting"));
+        
+        onSnapshot(q, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                const data = change.doc.data();
+                const id = change.doc.id;
+
+                if (change.type === "added") {
+                    // 新しい依頼が来たら地図にピンを立てる
+                    const marker = L.marker([data.latitude, data.longitude])
+                        .addTo(map)
+                        .bindPopup(`依頼者: ${data.name}<br>ステータス: ${data.status}`)
+                        .openPopup();
+                    markers[id] = marker;
+                } else if (change.type === "removed") {
+                    // 依頼が完了・削除されたらピンを消す
+                    map.removeLayer(markers[id]);
+                    delete markers[id];
+                }
+            });
+        });
+    </script>
+</body>
+</html>
