@@ -16,11 +16,9 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
-        // 1. deleteDoc と doc を追加しています
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, query, where, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-        // ここに自分のFirebase設定を貼り付けてください！
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
             authDomain: "loser-12855.firebaseapp.com",
@@ -46,30 +44,38 @@
                 const id = change.doc.id;
 
                 if (change.type === "added") {
-                    // 2. ボタン付きのポップアップが出るように変更
                     const marker = L.marker([data.latitude, data.longitude])
                         .addTo(map)
                         .bindPopup(`
                             <b>依頼者: ${data.name}</b><br>
-                            <button onclick="completeRequest('${id}')" style="margin-top:10px; padding:5px; cursor:pointer; background:#28a745; color:white; border:none; border-radius:3px;">✅ 迎えに行った(完了)</button>
+                            <input type="number" id="time-${id}" value="5" style="width:40px"> 分で到着予定<br>
+                            <button onclick="sendEta('${id}')" style="margin-top:5px; background:#007bff; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">⏳ 時間を送る</button>
+                            <hr>
+                            <button onclick="completeRequest('${id}')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">✅ 完了（削除）</button>
                         `);
                     markers[id] = marker;
                 } else if (change.type === "removed") {
-                    map.removeLayer(markers[id]);
-                    delete markers[id];
+                    if (markers[id]) {
+                        map.removeLayer(markers[id]);
+                        delete markers[id];
+                    }
                 }
             });
         });
 
-        // 3. 完了ボタンを押した時の動きを定義
+        window.sendEta = async (id) => {
+            const mins = document.getElementById(`time-${id}`).value;
+            try {
+                await updateDoc(doc(db, "requests", id), { eta: mins });
+                alert("到着予定時間を送信しました！");
+            } catch (e) { alert("エラー: " + e.message); }
+        };
+
         window.completeRequest = async (id) => {
-            if (confirm("この依頼を完了にしますか？")) {
+            if (confirm("この依頼を完了（削除）しますか？")) {
                 try {
                     await deleteDoc(doc(db, "requests", id));
-                    alert("完了しました！地図からピンを消します。");
-                } catch (e) {
-                    console.error("エラーが発生しました: ", e);
-                }
+                } catch (e) { alert("エラー: " + e.message); }
             }
         };
     </script>
