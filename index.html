@@ -6,8 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; }
-        #map { height: 350px; width: 100%; border-radius: 8px; margin-bottom: 10px; }
+        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; display: flex; flex-direction: column; min-height: 100vh; }
+        #top-section { flex: 0; }
+        #map { height: 300px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; }
         .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
         .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
         .tab.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #28a745; }
@@ -15,30 +16,49 @@
         .input-group.active { display: block; }
         input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
-        #status-message { text-align: center; font-weight: bold; margin: 10px; min-height: 1.5em; }
-        .legend { font-size: 12px; text-align: center; color: #666; margin-bottom: 5px; }
+        
+        /* 予約一覧のスタイル */
+        #my-requests-container { margin-top: 20px; flex: 1; }
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 5px solid #28a745; position: relative; }
+        .request-item.plan { border-left-color: #f0ad4e; }
+        .request-item h4 { margin: 0 0 5px 0; font-size: 0.95em; }
+        .request-item p { margin: 0; font-size: 0.8em; color: #666; line-height: 1.4; }
+        .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-top: 5px; }
+        .status-waiting { background: #eee; color: #666; }
+        .status-arrived { background: #ffeeba; color: #856404; }
+        .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; }
     </style>
 </head>
 <body>
-    <div id="status-message"></div>
-    <div class="tabs">
-        <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
-        <div id="tab-plan" class="tab" onclick="switchMode('plan')">予約する</div>
+
+    <div id="top-section">
+        <div id="status-message" style="text-align: center; font-weight: bold; margin-bottom: 10px;"></div>
+        
+        <div class="tabs">
+            <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
+            <div id="tab-plan" class="tab" onclick="switchMode('plan')">予約する</div>
+        </div>
+
+        <div id="plan-input" class="input-group">
+            <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
+            <input type="datetime-local" id="scheduled-time">
+        </div>
+
+        <div id="map"></div>
+        <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
+        <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
     </div>
-    <div id="plan-input" class="input-group">
-        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
-        <input type="datetime-local" id="scheduled-time">
+
+    <div id="my-requests-container">
+        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約・依頼</h3>
+        <div id="my-requests-list">読み込み中...</div>
     </div>
-    <div class="legend">🔵 現在地 / 🔴 送迎場所（ドラッグ移動）</div>
-    <div id="map"></div>
-    <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
-    <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
@@ -72,22 +92,54 @@
 
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
             if (liff.isLoggedIn()) {
-                liff.getProfile().then(p => { userName = p.displayName; watchMyRequest(); });
+                liff.getProfile().then(p => { 
+                    userName = p.displayName; 
+                    watchMyRequests(); 
+                });
             } else { liff.login(); }
         });
 
-        function watchMyRequest() {
+        // 自分の依頼一覧をリアルタイム監視
+        function watchMyRequests() {
+            const listDiv = document.getElementById("my-requests-list");
             const q = query(collection(db, "requests"), where("name", "==", userName));
+            
             onSnapshot(q, (snapshot) => {
-                const statusDiv = document.getElementById("status-message");
-                let active = null;
-                snapshot.forEach(doc => { if (doc.data().status !== "completed") active = doc.data(); });
-                if (!active) { statusDiv.innerText = ""; return; }
-                if (active.status === "arrived") { statusDiv.innerText = "📍 到着しました！"; statusDiv.style.color = "red"; }
-                else if (active.eta) { statusDiv.innerText = `🚗 あと約 ${active.eta} 分で到着！`; statusDiv.style.color = "#007bff"; }
-                else { statusDiv.innerText = active.scheduledTime ? `📅 ${active.scheduledTime.replace('T', ' ')} に予約済み` : "🚕 依頼送信済み..."; }
+                listDiv.innerHTML = "";
+                let activeCount = 0;
+
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if (data.status === "completed") return; // 完了分は出さない
+                    activeCount++;
+
+                    const item = document.createElement("div");
+                    item.className = `request-item ${data.type}`;
+                    
+                    const timeInfo = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "今すぐ呼ぶ";
+                    const statusText = data.status === "arrived" ? "📍 到着しました！" : (data.eta ? `🚗 あと約 ${data.eta} 分` : "🚕 待機中");
+                    const statusClass = data.status === "arrived" ? "status-arrived" : "status-waiting";
+
+                    item.innerHTML = `
+                        <button class="cancel-btn" onclick="cancelRequest('${docSnap.id}')">取消</button>
+                        <h4>${timeInfo}</h4>
+                        <p>📍 ${data.address || "住所取得中..."}</p>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    `;
+                    listDiv.appendChild(item);
+                });
+
+                if (activeCount === 0) {
+                    listDiv.innerHTML = "<p style='color:#999; font-size:0.8em;'>有効な依頼はありません</p>";
+                }
             });
         }
+
+        window.cancelRequest = async (id) => {
+            if (confirm("この依頼を取り消しますか？")) {
+                await deleteDoc(doc(db, "requests", id));
+            }
+        };
 
         window.getCurrentLocation = () => {
             navigator.geolocation.getCurrentPosition((pos) => {
@@ -121,7 +173,7 @@
                     scheduledTime: mode === 'plan' ? scheduledTime : null,
                     timestamp: serverTimestamp()
                 });
-                alert(mode === 'now' ? "依頼を送信しました！" : "予約を完了しました！");
+                alert("依頼を送信しました！下のリストから状況を確認できます。");
             } catch (e) { alert("エラー: " + e.message); }
         };
     </script>
