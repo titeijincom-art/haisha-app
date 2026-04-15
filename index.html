@@ -38,4 +38,92 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
+            authDomain: "loser-12855.firebaseapp.com",
+            projectId: "loser-12855",
+            storageBucket: "loser-12855.firebasestorage.app",
+            messagingSenderId: "375707924539",
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let userName = "ゲスト";
+        let currentMarker, pickupMarker, mode = 'now';
+        const map = L.map('map').setView([35.6812, 139.7671], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        const redIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
+        window.switchMode = (newMode) => {
+            mode = newMode;
+            document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
+            document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
+            document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
+            document.getElementById('request-btn').innerText = (mode === 'now') ? '今すぐ呼ぶ' : '予約を確定する';
+        };
+
+        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
+            if (liff.isLoggedIn()) {
+                liff.getProfile().then(p => { userName = p.displayName; watchMyRequest(); });
+            } else { liff.login(); }
+        });
+
+        function watchMyRequest() {
+            const q = query(collection(db, "requests"), where("name", "==", userName));
+            onSnapshot(q, (snapshot) => {
+                const statusDiv = document.getElementById("status-message");
+                let active = null;
+                snapshot.forEach(doc => { if (doc.data().status !== "completed") active = doc.data(); });
+                if (!active) { statusDiv.innerText = ""; return; }
+                if (active.status === "arrived") { statusDiv.innerText = "📍 到着しました！"; statusDiv.style.color = "red"; }
+                else if (active.eta) { statusDiv.innerText = `🚗 あと約 ${active.eta} 分で到着！`; statusDiv.style.color = "#007bff"; }
+                else { statusDiv.innerText = active.scheduledTime ? `📅 ${active.scheduledTime.replace('T', ' ')} に予約済み` : "🚕 依頼送信済み..."; }
+            });
+        }
+
+        window.getCurrentLocation = () => {
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                map.setView(latlng, 17);
+                if (currentMarker) currentMarker.setLatLng(latlng);
+                else currentMarker = L.circleMarker(latlng, { radius: 8, color: 'blue' }).addTo(map);
+                if (pickupMarker) pickupMarker.setLatLng(latlng);
+                else pickupMarker = L.marker(latlng, { draggable: true, icon: redIcon }).addTo(map);
+            });
+        };
+
+        window.requestTaxi = async () => {
+            if (!pickupMarker) { alert("位置を取得してください"); return; }
+            const pos = pickupMarker.getLatLng();
+            const scheduledTime = document.getElementById('scheduled-time').value;
+            if (mode === 'plan' && !scheduledTime) { alert("予約時間を選択してください"); return; }
+
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}&addressdetails=1`);
+                const addressData = await response.json();
+                const address = addressData.display_name || "住所不明";
+
+                await addDoc(collection(db, "requests"), {
+                    name: userName,
+                    latitude: pos.lat,
+                    longitude: pos.lng,
+                    address: address,
+                    status: "waiting",
+                    type: mode,
+                    scheduledTime: mode === 'plan' ? scheduledTime : null,
+                    timestamp: serverTimestamp()
+                });
+                alert(mode === 'now' ? "依頼を送信しました！" : "予約を完了しました！");
+            } catch (e) { alert("エラー: " + e.message); }
+        };
+    </script>
+</body>
+</html>
