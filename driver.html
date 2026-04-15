@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面</title>
+    <title>ドライバー用画面（自動計算版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -11,7 +11,7 @@
     </style>
 </head>
 <body>
-    <div class="info-box">🚕 配車リクエスト待機中...</div>
+    <div class="info-box">🚕 配車リクエスト待機中...<br><small id="driver-status">位置取得中...</small></div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -35,6 +35,28 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         let markers = {};
+        let driverLocation = null;
+
+        // ドライバーの現在地をリアルタイムに追跡
+        navigator.geolocation.watchPosition((position) => {
+            driverLocation = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+            };
+            document.getElementById('driver-status').innerText = "ドライバーの位置取得済み";
+        });
+
+        // 2点間の距離(km)を計算する関数
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // 地球の半径 km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
 
         const q = query(collection(db, "requests"), where("status", "==", "waiting"));
         
@@ -44,14 +66,21 @@
                 const id = change.doc.id;
 
                 if (change.type === "added") {
+                    // 自動計算（ドライバーの現在地があれば）
+                    let autoTime = 5;
+                    if (driverLocation) {
+                        const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
+                        autoTime = Math.ceil((dist / 30) * 60) + 2; // 時速30km + 準備2分
+                    }
+
                     const marker = L.marker([data.latitude, data.longitude])
                         .addTo(map)
                         .bindPopup(`
                             <b>依頼者: ${data.name}</b><br>
-                            <input type="number" id="time-${id}" value="5" style="width:40px"> 分で到着予定<br>
+                            <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
                             <button onclick="sendEta('${id}')" style="margin-top:5px; background:#007bff; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">⏳ 時間を送る</button>
                             <hr>
-                            <button onclick="completeRequest('${id}')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">✅ 完了（削除）</button>
+                            <button onclick="completeRequest('${id}')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:3px; cursor:pointer;">✅ 完了</button>
                         `);
                     markers[id] = marker;
                 } else if (change.type === "removed") {
@@ -72,7 +101,7 @@
         };
 
         window.completeRequest = async (id) => {
-            if (confirm("この依頼を完了（削除）しますか？")) {
+            if (confirm("完了しますか？")) {
                 try {
                     await deleteDoc(doc(db, "requests", id));
                 } catch (e) { alert("エラー: " + e.message); }
