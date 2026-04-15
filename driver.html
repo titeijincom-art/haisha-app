@@ -1,24 +1,36 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（ピン色分け版）</title>
+    <title>ドライバー用画面（一覧表示付）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 100vh; width: 100%; }
-        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-family: sans-serif; }
+        body { margin: 0; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
+        #map { flex: 2; width: 100%; }
+        #list-container { flex: 1; background: #f8f9fa; overflow-y: auto; border-top: 2px solid #ddd; padding: 10px; }
+        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        
+        .reserve-item { background: white; margin-bottom: 8px; padding: 12px; border-radius: 6px; border-left: 5px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
+        .reserve-item.now { border-left-color: #28a745; } /* 今すぐ：緑 */
+        .reserve-item.plan { border-left-color: #f0ad4e; } /* 予約：オレンジ */
+        .reserve-item h4 { margin: 0 0 5px 0; display: flex; justify-content: space-between; }
+        .time-badge { font-size: 0.8em; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; }
+        
         .btn-action { color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; font-weight: bold; }
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
         .btn-green { background:#28a745; margin-top: 10px; }
-        .time-label { color: #666; font-size: 0.85em; margin-bottom: 5px; display: block; background: #f8f9fa; padding: 4px; border-radius: 3px; }
-        .plan-label { font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 5px; }
     </style>
 </head>
 <body>
-    <div class="info-box">🚕 運行管理画面<br><small id="driver-status">位置取得中...</small></div>
+    <div class="info-box">🚕 運行管理システム</div>
     <div id="map"></div>
+    
+    <div id="list-container">
+        <h3 style="margin-top:0;">📅 予約・依頼一覧</h3>
+        <div id="reserve-list">読み込み中...</div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
@@ -40,114 +52,80 @@
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // --- ピンのアイコン設定 ---
-        const greenIcon = new L.Icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-        });
-
-        const orangeIcon = new L.Icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-        });
+        const greenIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+        const orangeIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
 
         let markers = {};
         let driverLocation = null;
 
-        navigator.geolocation.watchPosition((position) => {
-            driverLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
-            document.getElementById('driver-status').innerText = "🟢 オンライン (当日リクエスト表示中)";
-        });
+        navigator.geolocation.watchPosition(p => { driverLocation = { lat: p.coords.latitude, lng: p.coords.longitude }; });
 
-        function getDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        }
-
-        // 当日判定
         function isToday(dateStr) {
             if (!dateStr) return true;
-            const today = new Date();
-            const target = new Date(dateStr);
-            return today.getFullYear() === target.getFullYear() &&
-                   today.getMonth() === target.getMonth() &&
-                   today.getDate() === target.getDate();
+            const today = new Date(); const target = new Date(dateStr);
+            return today.getFullYear() === target.getFullYear() && today.getMonth() === target.getMonth() && today.getDate() === target.getDate();
         }
 
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
         
         onSnapshot(q, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                const data = change.doc.data();
-                const id = change.doc.id;
+            const listDiv = document.getElementById('reserve-list');
+            listDiv.innerHTML = ""; // リストを一度空にする
+            
+            // データを配列に変換してソート（予約時間が近い順、その後に送信時間順）
+            const allRequests = [];
+            snapshot.forEach(doc => allRequests.push({ id: doc.id, ...doc.data() }));
+            
+            allRequests.sort((a, b) => (a.scheduledTime || "") > (b.scheduledTime || "") ? 1 : -1);
 
-                // 明日以降の予約はピンを表示させない（削除処理）
+            allRequests.forEach((data) => {
+                const id = data.id;
+
+                // --- 1. 地図ピンの処理（当日分のみ） ---
                 if (data.type === 'plan' && !isToday(data.scheduledTime)) {
                     if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
-                    return; 
+                } else {
+                    const icon = data.type === 'plan' ? orangeIcon : greenIcon;
+                    if (!markers[id]) {
+                        markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
+                            .bindPopup(`<b>${data.name}</b><br><button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button><button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button><button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button>`);
+                    }
                 }
 
-                if (change.type === "added" || (change.type === "modified" && !markers[id])) {
-                    let dateTimeStr = "不明";
-                    if (data.timestamp) {
-                        const d = data.timestamp.toDate();
-                        dateTimeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-                    }
+                // --- 2. 一覧リストの処理（未来分もすべて表示） ---
+                const item = document.createElement('div');
+                item.className = `reserve-item ${data.type}`;
+                const displayDate = data.type === 'plan' ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
+                
+                item.innerHTML = `
+                    <h4>${data.name} <span class="time-badge">${displayDate}</span></h4>
+                    <div style="font-size: 0.85em; color: #555;">📍 座標: ${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}</div>
+                `;
+                
+                // クリックで地図を移動
+                item.onclick = () => {
+                    map.setView([data.latitude, data.longitude], 16);
+                    if(markers[id]) markers[id].openPopup();
+                };
+                
+                listDiv.appendChild(item);
+            });
 
-                    // --- モードによる表示の切り分け ---
-                    const isPlan = data.type === 'plan';
-                    const icon = isPlan ? orangeIcon : greenIcon;
-                    const planLabelColor = isPlan ? '#f0ad4e' : '#28a745';
-                    const planText = isPlan ? 
-                        `<span class="plan-label" style="color:${planLabelColor};">📅 当日予約: ${data.scheduledTime.split('T')[1]}</span>` : 
-                        `<span class="plan-label" style="color:${planLabelColor};">⚡ 今すぐ呼ぶ</span>`;
-
-                    let autoTime = 5;
-                    if (driverLocation) {
-                        const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
-                        autoTime = Math.ceil((dist / 30) * 60) + 2;
-                    }
-
-                    const marker = L.marker([data.latitude, data.longitude], { icon: icon })
-                        .addTo(map)
-                        .bindPopup(`
-                            <div style="min-width:180px">
-                                <b>依頼者: ${data.name}</b><br>
-                                ${planText}
-                                <span class="time-label">🕒 依頼送信: ${dateTimeStr}</span>
-                                <input type="number" id="time-${id}" value="${autoTime}" style="width:40px"> 分で到着予定<br>
-                                <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間を送信</button>
-                                <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着しました</button>
-                                <hr>
-                                <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 送迎完了</button>
-                            </div>
-                        `);
-                    markers[id] = marker;
-                } else if (change.type === "removed") {
-                    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
-                }
+            // 削除されたデータのピンを掃除
+            const currentIds = allRequests.map(r => r.id);
+            Object.keys(markers).forEach(mid => {
+                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; }
             });
         });
 
-        // 共通関数（以前と同じ）
+        // 操作用関数（前と同じ）
         window.sendEta = async (id) => {
-            const mins = document.getElementById(`time-${id}`).value;
-            try { await updateDoc(doc(db, "requests", id), { eta: mins }); alert("通知しました"); } catch (e) { console.error(e); }
+            const mins = prompt("到着までの時間は？(分)", "5");
+            if(mins) await updateDoc(doc(db, "requests", id), { eta: mins });
         };
-        window.sendArrival = async (id) => {
-            try { await updateDoc(doc(db, "requests", id), { status: "arrived" }); alert("到着を通知しました！"); } catch (e) { alert(e.message); }
-        };
+        window.sendArrival = async (id) => { await updateDoc(doc(db, "requests", id), { status: "arrived" }); alert("到着を通知しました"); };
         window.completeRequest = async (id) => {
-            if (confirm("送迎を完了しますか？")) {
-                try { await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); } catch (e) { alert(e.message); }
-            }
+            if (confirm("送迎を完了しますか？")) await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() });
         };
     </script>
 </body>
