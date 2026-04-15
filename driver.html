@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（一覧表示付）</title>
+    <title>ドライバー用画面（リスト連動強化版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -10,13 +10,11 @@
         #map { flex: 2; width: 100%; }
         #list-container { flex: 1; background: #f8f9fa; overflow-y: auto; border-top: 2px solid #ddd; padding: 10px; }
         .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
-        
         .reserve-item { background: white; margin-bottom: 8px; padding: 12px; border-radius: 6px; border-left: 5px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
-        .reserve-item.now { border-left-color: #28a745; } /* 今すぐ：緑 */
-        .reserve-item.plan { border-left-color: #f0ad4e; } /* 予約：オレンジ */
+        .reserve-item.now { border-left-color: #28a745; }
+        .reserve-item.plan { border-left-color: #f0ad4e; }
         .reserve-item h4 { margin: 0 0 5px 0; display: flex; justify-content: space-between; }
         .time-badge { font-size: 0.8em; color: #666; background: #eee; padding: 2px 6px; border-radius: 4px; }
-        
         .btn-action { color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; font-weight: bold; }
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
@@ -26,7 +24,6 @@
 <body>
     <div class="info-box">🚕 運行管理システム</div>
     <div id="map"></div>
-    
     <div id="list-container">
         <h3 style="margin-top:0;">📅 予約・依頼一覧</h3>
         <div id="reserve-list">読み込み中...</div>
@@ -52,13 +49,13 @@
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        const greenIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
-        const orangeIcon = new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
+        const icons = {
+            green: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] }),
+            orange: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
+        };
 
         let markers = {};
-        let driverLocation = null;
-
-        navigator.geolocation.watchPosition(p => { driverLocation = { lat: p.coords.latitude, lng: p.coords.longitude }; });
+        let currentRequests = [];
 
         function isToday(dateStr) {
             if (!dateStr) return true;
@@ -70,55 +67,72 @@
         
         onSnapshot(q, (snapshot) => {
             const listDiv = document.getElementById('reserve-list');
-            listDiv.innerHTML = ""; // リストを一度空にする
+            listDiv.innerHTML = "";
+            currentRequests = [];
+            snapshot.forEach(doc => currentRequests.push({ id: doc.id, ...doc.data() }));
             
-            // データを配列に変換してソート（予約時間が近い順、その後に送信時間順）
-            const allRequests = [];
-            snapshot.forEach(doc => allRequests.push({ id: doc.id, ...doc.data() }));
-            
-            allRequests.sort((a, b) => (a.scheduledTime || "") > (b.scheduledTime || "") ? 1 : -1);
+            // 予約日時順にソート
+            currentRequests.sort((a, b) => (a.scheduledTime || "") > (b.scheduledTime || "") ? 1 : -1);
 
-            allRequests.forEach((data) => {
+            // 当日分のピンを更新・非当日分のピンを削除
+            const currentIds = currentRequests.map(r => r.id);
+            Object.keys(markers).forEach(mid => {
+                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; }
+            });
+
+            currentRequests.forEach((data) => {
                 const id = data.id;
+                const isPlan = data.type === 'plan';
+                const today = isToday(data.scheduledTime);
 
-                // --- 1. 地図ピンの処理（当日分のみ） ---
-                if (data.type === 'plan' && !isToday(data.scheduledTime)) {
-                    if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
-                } else {
-                    const icon = data.type === 'plan' ? orangeIcon : greenIcon;
-                    if (!markers[id]) {
-                        markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
-                            .bindPopup(`<b>${data.name}</b><br><button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button><button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button><button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button>`);
-                    }
+                // 基本ルール：当日分のみ常時ピンを表示
+                if (!isPlan || today) {
+                    updateMarker(data);
                 }
 
-                // --- 2. 一覧リストの処理（未来分もすべて表示） ---
+                // 一覧リストの作成
                 const item = document.createElement('div');
                 item.className = `reserve-item ${data.type}`;
-                const displayDate = data.type === 'plan' ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
+                const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
                 
                 item.innerHTML = `
                     <h4>${data.name} <span class="time-badge">${displayDate}</span></h4>
-                    <div style="font-size: 0.85em; color: #555;">📍 座標: ${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}</div>
+                    <div style="font-size: 0.85em; color: #555;">📍 タップして場所を確認</div>
                 `;
                 
-                // クリックで地図を移動
+                // 【重要】リストクリック時の動作
                 item.onclick = () => {
+                    // もしピンがなければ一時的に作成
+                    if (!markers[id]) {
+                        updateMarker(data);
+                    }
                     map.setView([data.latitude, data.longitude], 16);
-                    if(markers[id]) markers[id].openPopup();
+                    markers[id].openPopup();
                 };
                 
                 listDiv.appendChild(item);
             });
-
-            // 削除されたデータのピンを掃除
-            const currentIds = allRequests.map(r => r.id);
-            Object.keys(markers).forEach(mid => {
-                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; }
-            });
         });
 
-        // 操作用関数（前と同じ）
+        function updateMarker(data) {
+            const id = data.id;
+            const icon = data.type === 'plan' ? icons.orange : icons.green;
+            const isPlan = data.type === 'plan';
+            
+            if (markers[id]) map.removeLayer(markers[id]);
+
+            markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
+                .bindPopup(`
+                    <div style="min-width:160px">
+                        <b>${data.name}</b><br>
+                        ${isPlan ? '📅 予約希望' : '⚡ 今すぐ'}<br>
+                        <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button>
+                        <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button>
+                        <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 完了</button>
+                    </div>
+                `);
+        }
+
         window.sendEta = async (id) => {
             const mins = prompt("到着までの時間は？(分)", "5");
             if(mins) await updateDoc(doc(db, "requests", id), { eta: mins });
