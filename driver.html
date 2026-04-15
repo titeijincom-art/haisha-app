@@ -70,7 +70,7 @@
                     let autoTime = 5;
                     if (driverLocation) {
                         const dist = getDistance(driverLocation.lat, driverLocation.lng, data.latitude, data.longitude);
-                        autoTime = Math.ceil((dist / 30) * 60) + 2; // 時速30km + 準備2分
+                        autoTime = Math.ceil((dist / 30) * 60) + 5; // 時速30km + 準備2分
                     }
 
                     const marker = L.marker([data.latitude, data.longitude])
