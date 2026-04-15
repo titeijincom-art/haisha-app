@@ -56,28 +56,39 @@
             }
         });
 
+        // 監視処理（より確実な方法に変更）
         function watchMyRequest() {
-            // 自分の名前の依頼で、かつ完了(completed)していないものを監視
-            const q = query(collection(db, "requests"), where("name", "==", userName), where("status", "!=", "completed"));
+            // シンプルに「自分の名前」のデータだけを監視
+            const q = query(collection(db, "requests"), where("name", "==", userName));
+            
             onSnapshot(q, (snapshot) => {
                 const statusDiv = document.getElementById("status-message");
-                if (snapshot.empty) {
+                
+                // 進行中のリクエストを探す
+                let activeRequest = null;
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status !== "completed") {
+                        activeRequest = data;
+                    }
+                });
+
+                if (!activeRequest) {
                     statusDiv.innerText = "";
                     return;
                 }
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.status === "arrived") {
-                        statusDiv.innerText = "📍 ドライバーが到着しました！外でお待ちください。";
-                        statusDiv.style.color = "red";
-                    } else if (data.eta) {
-                        statusDiv.innerText = `🚗 あと約 ${data.eta} 分で到着します！`;
-                        statusDiv.style.color = "#007bff";
-                    } else {
-                        statusDiv.innerText = "🚕 配車を待っています...";
-                        statusDiv.style.color = "#007bff";
-                    }
-                });
+
+                // メッセージ表示の切り替え
+                if (activeRequest.status === "arrived") {
+                    statusDiv.innerText = "📍 到着しました！外でお待ちください。";
+                    statusDiv.style.color = "red";
+                } else if (activeRequest.eta) {
+                    statusDiv.innerText = `🚗 あと約 ${activeRequest.eta} 分で到着します！`;
+                    statusDiv.style.color = "#007bff";
+                } else {
+                    statusDiv.innerText = "🚕 配車リクエストを送信済み...";
+                    statusDiv.style.color = "#007bff";
+                }
             });
         }
 
