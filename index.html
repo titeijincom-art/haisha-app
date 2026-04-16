@@ -28,7 +28,6 @@
     </div>
 
     <div id="plan-input" class="input-group">
-        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
         <input type="datetime-local" id="scheduled-time">
     </div>
 
@@ -45,7 +44,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
@@ -135,7 +134,24 @@
                 });
             });
         }
-        window.cancelReq = async (id) => { if(confirm("依頼をキャンセルしますか？")) await deleteDoc(doc(db, "requests", id)); };
+
+        window.cancelReq = async (id) => { 
+            if(confirm("依頼をキャンセルしますか？")) {
+                try {
+                    const ref = doc(db, "requests", id);
+                    const snap = await getDoc(ref);
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        await deleteDoc(ref);
+                        // 削除後に通知を送る
+                        sendAlert("【取消】ユーザーにより依頼がキャンセルされました", data);
+                        alert("キャンセルを完了しました。");
+                    }
+                } catch (e) {
+                    await deleteDoc(doc(db, "requests", id));
+                }
+            } 
+        };
     </script>
 </body>
 </html>
