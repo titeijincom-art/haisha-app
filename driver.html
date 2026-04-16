@@ -38,7 +38,7 @@
             messagingSenderId: "375707924539",
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
         };
-        const gasUrl = "https://script.google.com/macros/s/AKfycbyqP4ELbmwAcByfHy2r8AP3r_H6HXwf3GX8C37V9xACzOhKsPvqoA2F_E26vOFObCIJvg/exec";
+        const gasUrl = "https://script.google.com/macros/s/AKfycbzFCp8aRCI-HxajyOcyhHVChu4vFgkj_uwslzVf0rbFSWe7lDhevQoMxX9A8MmPOAZVCQ/exec";
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
@@ -52,8 +52,13 @@
         };
 
         async function sendAlert(action, data) {
-            try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
-            catch (e) { console.error(e); }
+            try { 
+                await fetch(gasUrl, { 
+                    method: "POST", 
+                    mode: "no-cors", 
+                    body: JSON.stringify({ action, ...data }) 
+                }); 
+            } catch (e) { console.error("通知エラー:", e); }
         }
 
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
@@ -64,9 +69,8 @@
             snapshot.forEach(d => currentRequests.push({ id: d.id, ...d.data() }));
             currentRequests.sort((a, b) => (a.scheduledTime || "0") > (b.scheduledTime || "0") ? 1 : -1);
 
-            snapshot.forEach(d => {
-                const data = d.data();
-                const id = d.id;
+            currentRequests.forEach(data => {
+                const id = data.id;
                 const item = document.createElement('div');
                 item.className = `reserve-item ${data.type}`;
                 const timeStr = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "⚡今すぐ";
@@ -105,15 +109,15 @@
                 const m = prompt("到着まであと何分ですか？", "5");
                 if(m) {
                     await updateDoc(ref, { eta: m });
-                    sendAlert("到着予定の更新", { ...data, action: `あと${m}分で到着予定` });
+                    sendAlert("【更新】到着予定時刻", { ...data, action: `あと約${m}分で到着予定` });
                 }
             } else if (type === 'arrived') {
                 await updateDoc(ref, { status: "arrived" });
-                sendAlert("車両の到着", data);
+                sendAlert("【到着】車両が指定場所に到着", data);
             } else if (type === 'done') {
                 if(confirm("送迎を完了しますか？")) {
                     await updateDoc(ref, { status: "completed" });
-                    sendAlert("送迎完了", data);
+                    sendAlert("【完了】送迎が完了しました", data);
                 }
             }
         };
