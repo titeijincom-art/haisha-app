@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ドライバー用画面（表示修正版）</title>
+    <title>ドライバー用画面（全機能統合）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -9,32 +9,27 @@
         body { margin: 0; display: flex; flex-direction: column; height: 100vh; font-family: sans-serif; }
         #map { flex: 2; width: 100%; }
         #list-container { flex: 1; background: #f8f9fa; overflow-y: auto; border-top: 2px solid #ddd; padding: 10px; }
-        .info-box { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
-        .reserve-item { background: white; margin-bottom: 8px; padding: 12px; border-radius: 6px; border-left: 5px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
+        .reserve-item { background: white; margin-bottom: 8px; padding: 12px; border-radius: 6px; border-left: 5px solid #ccc; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .reserve-item.now { border-left-color: #28a745; }
         .reserve-item.plan { border-left-color: #f0ad4e; }
-        .reserve-item h4 { margin: 0 0 5px 0; display: flex; justify-content: space-between; }
-        .address-text { font-size: 0.85em; color: #444; margin-top: 5px; background: #eee; padding: 4px; border-radius: 3px; line-height: 1.4; }
         .btn-action { color:white; border:none; padding:8px; border-radius:3px; cursor:pointer; width: 100%; margin-top: 5px; font-weight: bold; }
         .btn-blue { background:#007bff; }
         .btn-yellow { background:#ffc107; color: black; }
-        .btn-green { background:#28a745; margin-top: 10px; }
+        .btn-green { background:#28a745; }
     </style>
 </head>
 <body>
-    <div class="info-box">🚕 運行管理システム</div>
     <div id="map"></div>
     <div id="list-container">
-        <h3 style="margin-top:0;">📅 予約・依頼一覧</h3>
+        <h3 style="margin:0 0 10px 0; font-size:1.1em;">🚕 運行管理リスト</h3>
         <div id="reserve-list">読み込み中...</div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, query, where, doc, updateDoc, serverTimestamp, getDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-        // --- ここにご自身のFirebase設定を入れてください ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
             authDomain: "loser-12855.firebaseapp.com",
@@ -43,23 +38,22 @@
             messagingSenderId: "375707924539",
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
         };
+        const gasUrl = "https://script.google.com/macros/s/AKfycbyqP4ELbmwAcByfHy2r8AP3r_H6HXwf3GX8C37V9xACzOhKsPvqoA2F_E26vOFObCIJvg/exec";
+
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+        let markers = {};
         const icons = {
-            green: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] }),
-            orange: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] })
+            green: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', iconSize: [25, 41], iconAnchor: [12, 41] }),
+            orange: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png', iconSize: [25, 41], iconAnchor: [12, 41] })
         };
 
-        let markers = {};
-
-        function isToday(dateStr) {
-            if (!dateStr) return true;
-            const today = new Date(); const target = new Date(dateStr);
-            return today.getFullYear() === target.getFullYear() && today.getMonth() === target.getMonth() && today.getDate() === target.getDate();
+        async function sendAlert(action, data) {
+            try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
+            catch (e) { console.error(e); }
         }
 
         const q = query(collection(db, "requests"), where("status", "in", ["waiting", "arrived"]));
@@ -67,82 +61,60 @@
             const listDiv = document.getElementById('reserve-list');
             listDiv.innerHTML = "";
             let currentRequests = [];
-            snapshot.forEach(doc => currentRequests.push({ id: doc.id, ...doc.data() }));
-            
-            // 予約日時順にソート（空のものは後ろへ）
-            currentRequests.sort((a, b) => (a.scheduledTime || "9999") > (b.scheduledTime || "9999") ? 1 : -1);
+            snapshot.forEach(d => currentRequests.push({ id: d.id, ...d.data() }));
+            currentRequests.sort((a, b) => (a.scheduledTime || "0") > (b.scheduledTime || "0") ? 1 : -1);
 
-            const currentIds = currentRequests.map(r => r.id);
-            Object.keys(markers).forEach(mid => { 
-                if (!currentIds.includes(mid)) { map.removeLayer(markers[mid]); delete markers[mid]; } 
-            });
-
-            currentRequests.forEach((data) => {
-                const id = data.id;
-                const isPlan = data.type === 'plan';
-                
-                // 地図表示（当日のみ）
-                if (!isPlan || isToday(data.scheduledTime)) {
-                    updateMarker(data);
-                }
-
-                // リスト表示
+            snapshot.forEach(d => {
+                const data = d.data();
+                const id = d.id;
                 const item = document.createElement('div');
                 item.className = `reserve-item ${data.type}`;
-                const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ依頼`;
-                item.innerHTML = `
-                    <h4>${data.name} <span style="font-size:0.75em; background:#eee; padding:2px 5px; border-radius:4px;">${displayDate}</span></h4>
-                    <div class="address-text">📍 ${data.address || "住所不明"}</div>
-                `;
+                const timeStr = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "⚡今すぐ";
+                item.innerHTML = `<b>${data.name}様</b> (${timeStr})<br><small>${data.address}</small>`;
                 
                 item.onclick = () => {
-                    if (!markers[id]) updateMarker(data); // 未表示の予約ピンを一時作成
+                    if (!markers[id]) updateMarker(id, data);
                     map.setView([data.latitude, data.longitude], 16);
                     markers[id].openPopup();
                 };
                 listDiv.appendChild(item);
+
+                const today = new Date().toISOString().split('T')[0];
+                if (data.type !== 'plan' || data.scheduledTime?.startsWith(today)) {
+                    updateMarker(id, data);
+                }
             });
         });
 
-        function updateMarker(data) {
-            const id = data.id;
-            const icon = data.type === 'plan' ? icons.orange : icons.green;
-            const isPlan = data.type === 'plan';
-            const displayDate = isPlan ? `📅 予約: ${data.scheduledTime.replace('T', ' ')}` : `⚡ 今すぐ`;
-            const address = data.address || "住所不明";
-
+        function updateMarker(id, data) {
             if (markers[id]) map.removeLayer(markers[id]);
-
-            // ポップアップの内容を構成（予約時間を確実に含める）
-            const popupContent = `
-                <div style="min-width:200px">
-                    <b style="font-size:1.1em;">${data.name} 様</b><br>
-                    <div style="color:#d9534f; font-weight:bold; margin-top:5px;">${displayDate}</div>
-                    <div style="font-size:0.85em; color:#666; margin:8px 0; background:#f9f9f9; padding:5px; border-radius:3px; border:1px solid #eee;">
-                        📍 ${address}
-                    </div>
-                    <button class="btn-action btn-blue" onclick="sendEta('${id}')">⏳ 時間送信</button>
-                    <button class="btn-action btn-yellow" onclick="sendArrival('${id}')">📍 到着通知</button>
-                    <hr style="border:0; border-top:1px solid #ddd; margin:10px 0;">
-                    <button class="btn-action btn-green" onclick="completeRequest('${id}')">✅ 送迎完了</button>
-                </div>
-            `;
-
-            markers[id] = L.marker([data.latitude, data.longitude], { icon: icon }).addTo(map)
-                .bindPopup(popupContent);
+            markers[id] = L.marker([data.latitude, data.longitude], { icon: data.type==='plan'?icons.orange:icons.green }).addTo(map)
+                .bindPopup(`<b>${data.name}様</b><br><small>${data.address}</small><hr>
+                    <button class="btn-action btn-blue" onclick="action('${id}','eta')">⏳時間通知</button>
+                    <button class="btn-action btn-yellow" onclick="action('${id}','arrived')">📍到着</button>
+                    <button class="btn-action btn-green" onclick="action('${id}','done')">✅完了</button>`);
+            return markers[id];
         }
 
-        window.sendEta = async (id) => {
-            const mins = prompt("到着までの時間は？(分)", "5");
-            if(mins) await updateDoc(doc(db, "requests", id), { eta: mins });
-        };
-        window.sendArrival = async (id) => { 
-            await updateDoc(doc(db, "requests", id), { status: "arrived" }); 
-            alert("到着を通知しました"); 
-        };
-        window.completeRequest = async (id) => { 
-            if (confirm("送迎を完了しますか？")) {
-                await updateDoc(doc(db, "requests", id), { status: "completed", completedAt: serverTimestamp() }); 
+        window.action = async (id, type) => {
+            const ref = doc(db, "requests", id);
+            const snap = await getDoc(ref);
+            const data = snap.data();
+
+            if (type === 'eta') {
+                const m = prompt("到着まであと何分ですか？", "5");
+                if(m) {
+                    await updateDoc(ref, { eta: m });
+                    sendAlert("到着予定の更新", { ...data, action: `あと${m}分で到着予定` });
+                }
+            } else if (type === 'arrived') {
+                await updateDoc(ref, { status: "arrived" });
+                sendAlert("車両の到着", data);
+            } else if (type === 'done') {
+                if(confirm("送迎を完了しますか？")) {
+                    await updateDoc(ref, { status: "completed" });
+                    sendAlert("送迎完了", data);
+                }
             }
         };
     </script>
