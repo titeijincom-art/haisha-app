@@ -1,23 +1,41 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（デバッグ版）</title>
+    <title>配車アプリ（表示修正版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; }
-        #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 10px; background: #ccc; }
+        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; display: flex; flex-direction: column; min-height: 100vh; }
+        #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; background: #eee; }
+        .template-section { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .template-btns { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; }
+        .tpl-btn { background: #f8f9fa; border: 1px solid #ddd; padding: 8px 15px; border-radius: 20px; font-size: 13px; white-space: nowrap; cursor: pointer; }
         .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
         .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
         .tab.active { background: white; color: #28a745; }
         .input-group { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: none; }
         .input-group.active { display: block; }
-        #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; }
-        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; }
+        input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
+        #request-btn.edit-mode { background: #007bff; }
+        #cancel-edit-btn { width: 100%; margin-top: 5px; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 8px; display: none; cursor: pointer; }
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
+        .request-item.plan { border-left-color: #f0ad4e; }
+        .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; z-index: 10; }
+        .status-badge { display: inline-block; margin-top: 5px; font-weight: bold; font-size: 0.85em; }
     </style>
 </head>
 <body>
+
+    <div class="template-section">
+        <div style="font-size: 12px; color: #666; margin-bottom: 8px;">📍 お気に入り</div>
+        <div class="template-btns">
+            <button class="tpl-btn" onclick="applyTemplate('羽田空港', 35.5494, 139.7798)">羽田空港</button>
+            <button class="tpl-btn" onclick="applyTemplate('東京駅', 35.6812, 139.7671)">東京駅</button>
+            <button id="custom-tpl-1" class="tpl-btn" onclick="useCustomTemplate(1)" oncontextmenu="saveCustomTemplate(1); return false;">自宅を保存(長押し)</button>
+        </div>
+    </div>
 
     <div class="tabs">
         <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
@@ -25,15 +43,17 @@
     </div>
 
     <div id="plan-input" class="input-group">
+        <label style="font-size: 12px; color:#666;">お迎え日時：</label>
         <input type="datetime-local" id="scheduled-time">
     </div>
 
     <div id="map"></div>
     <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
+    <button id="cancel-edit-btn" onclick="exitEditMode()">修正をキャンセル</button>
 
-    <div style="margin-top:20px;">
-        <h3 style="font-size: 1.1em;">📅 あなたの予約状況</h3>
-        <div id="my-requests-list">読み込みを開始します...</div>
+    <div id="my-requests-container" style="margin-top:20px;">
+        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約状況</h3>
+        <div id="my-requests-list">読み込み中...</div>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -50,63 +70,136 @@
             messagingSenderId: "375707924539",
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
         };
+        const gasUrl = "https://script.google.com/macros/s/AKfycbzFCp8aRCI-HxajyOcyhHVChu4vFgkj_uwslzVf0rbFSWe7lDhevQoMxX9A8MmPOAZVCQ/exec";
 
-        // --- 地図の初期化（これを一番先にやる） ---
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        let userName = "ゲスト", mode = 'now', pickupMarker, editingId = null;
+        
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        const pickupMarker = L.marker([35.6812, 139.7671], { draggable: true }).addTo(map);
+        pickupMarker = L.marker([35.6812, 139.7671], { draggable: true }).addTo(map);
 
-        try {
-            const app = initializeApp(firebaseConfig);
-            const db = getFirestore(app);
-            let userName = "ゲスト";
+        navigator.geolocation.getCurrentPosition(pos => {
+            const latlng = [pos.coords.latitude, pos.coords.longitude];
+            map.setView(latlng, 16);
+            pickupMarker.setLatLng(latlng);
+        }, () => {});
 
-            // --- LIFFの初期化 ---
-            liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
-                if (liff.isLoggedIn()) {
-                    liff.getProfile().then(p => {
-                        userName = p.displayName;
-                        watchMyRequests(db, userName);
-                    });
-                } else {
-                    liff.login();
-                }
-            }).catch(err => {
-                alert("LIFF初期化失敗: " + err);
-                // LIFFがダメでもゲストとしてリスト表示を試みる
-                watchMyRequests(db, "ゲスト");
-            });
-
-            // --- リスト表示機能 ---
-            function watchMyRequests(db, name) {
-                const listDiv = document.getElementById("my-requests-list");
-                const q = query(collection(db, "requests"), where("name", "==", name));
-                
-                onSnapshot(q, (snapshot) => {
-                    listDiv.innerHTML = "";
-                    if (snapshot.empty) {
-                        listDiv.innerHTML = "現在、依頼はありません。";
-                    }
-                    snapshot.forEach(d => {
-                        const data = d.data();
-                        const item = document.createElement("div");
-                        item.className = "request-item";
-                        item.innerHTML = `<b>${data.type}</b><br><small>${data.address}</small>`;
-                        listDiv.appendChild(item);
-                    });
-                }, (err) => {
-                    alert("Firestore読み込みエラー: " + err.message);
-                });
+        // テンプレート
+        window.applyTemplate = (name, lat, lng) => {
+            pickupMarker.setLatLng([lat, lng]);
+            map.setView([lat, lng], 16);
+            alert(name + "をセットしました");
+        };
+        window.saveCustomTemplate = (num) => {
+            const pos = pickupMarker.getLatLng();
+            const label = prompt("名前（例：自宅）", "自宅");
+            if(label) {
+                localStorage.setItem('tpl_'+num, JSON.stringify({label, lat: pos.lat, lng: pos.lng}));
+                loadCustomButtons();
             }
-
-        } catch (e) {
-            alert("全体エラー: " + e.message);
+        };
+        window.useCustomTemplate = (num) => {
+            const saved = localStorage.getItem('tpl_'+num);
+            if(saved) { const d = JSON.parse(saved); applyTemplate(d.label, d.lat, d.lng); }
+        };
+        function loadCustomButtons() {
+            const saved = localStorage.getItem('tpl_1');
+            if(saved) document.getElementById('custom-tpl-1').innerText = JSON.parse(saved).label;
         }
+        loadCustomButtons();
+
+        // LIFF & Firestore
+        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
+            if (liff.isLoggedIn()) {
+                liff.getProfile().then(p => { userName = p.displayName; watchMyRequests(); });
+            } else { liff.login(); }
+        });
 
         window.switchMode = (m) => {
-            document.getElementById('plan-input').className = (m === 'plan') ? 'input-group active' : 'input-group';
-            document.getElementById('tab-now').className = (m === 'now') ? 'tab active' : 'tab';
-            document.getElementById('tab-plan').className = (m === 'plan') ? 'tab active' : 'tab';
+            if(editingId) return;
+            mode = m;
+            document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
+            document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
+            document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
+        };
+
+        window.requestTaxi = async () => {
+            const pos = pickupMarker.getLatLng();
+            const sTime = document.getElementById('scheduled-time').value;
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
+            const addr = (await res.json()).display_name || "住所不明";
+
+            const payload = {
+                name: userName, latitude: pos.lat, longitude: pos.lng,
+                address: addr, status: "waiting", type: mode,
+                scheduledTime: mode === 'plan' ? sTime : null,
+                timestamp: serverTimestamp()
+            };
+
+            if (editingId) {
+                await updateDoc(doc(db, "requests", editingId), payload);
+                alert("更新しました");
+                exitEditMode();
+            } else {
+                await addDoc(collection(db, "requests"), payload);
+                alert("依頼しました");
+            }
+        };
+
+        function watchMyRequests() {
+            const q = query(collection(db, "requests"), where("name", "==", userName));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById("my-requests-list");
+                list.innerHTML = "";
+                snapshot.forEach(d => {
+                    const data = d.data();
+                    if (data.status === "completed") return;
+                    
+                    const item = document.createElement("div");
+                    item.className = `request-item ${data.type}`;
+                    
+                    // 日本語表示への変換
+                    const typeJP = data.type === 'plan' ? '【予約】' : '【今すぐ】';
+                    const timeJP = data.scheduledTime ? data.scheduledTime.replace('T', ' ') : (data.type === 'plan' ? '日時不明' : '');
+                    const addrDisp = data.address || "住所不明";
+                    
+                    let statusHtml = "";
+                    if (data.status === 'arrived') statusHtml = '<span class="status-badge" style="color:red;">📍到着しました！</span>';
+                    else if (data.eta) statusHtml = `<span class="status-badge" style="color:blue;">🚗あと約 ${data.eta} 分</span>`;
+                    else statusHtml = '<span class="status-badge" style="color:#666;">🚕確認中...</span>';
+
+                    item.innerHTML = `
+                        <button class="cancel-btn" onclick="event.stopPropagation(); cancelReq('${d.id}')">取消</button>
+                        <b>${typeJP} ${timeJP}</b><br><small>${addrDisp}</small><br>${statusHtml}
+                    `;
+                    item.onclick = () => enterEditMode(d.id, data);
+                    list.appendChild(item);
+                });
+            });
+        }
+
+        window.enterEditMode = (id, data) => {
+            editingId = id; mode = data.type;
+            switchMode(data.type);
+            if(data.type === 'plan') document.getElementById('scheduled-time').value = data.scheduledTime || "";
+            pickupMarker.setLatLng([data.latitude, data.longitude]);
+            map.setView([data.latitude, data.longitude], 17);
+            document.getElementById('request-btn').innerText = "内容を更新する";
+            document.getElementById('request-btn').classList.add('edit-mode');
+            document.getElementById('cancel-edit-btn').style.display = "block";
+        };
+
+        window.exitEditMode = () => {
+            editingId = null;
+            document.getElementById('request-btn').innerText = "配車を依頼する";
+            document.getElementById('request-btn').classList.remove('edit-mode');
+            document.getElementById('cancel-edit-btn').style.display = "none";
+        };
+
+        window.cancelReq = async (id) => {
+            if(confirm("取り消しますか？")) await deleteDoc(doc(db, "requests", id));
         };
     </script>
 </body>
