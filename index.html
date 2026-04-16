@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（依頼側）</title>
+    <title>配車アプリ（修正機能付）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -14,10 +14,16 @@
         .input-group { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: none; }
         .input-group.active { display: block; }
         input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        /* ボタンのスタイル */
         #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
-        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        #request-btn.edit-mode { background: #007bff; } /* 修正時は青色 */
+        #cancel-edit-btn { width: 100%; margin-top: 5px; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 8px; display: none; cursor: pointer; }
+
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
         .request-item.plan { border-left-color: #f0ad4e; }
-        .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; }
+        .request-item:hover { background: #f0f0f0; }
+        .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; z-index: 10; }
     </style>
 </head>
 <body>
@@ -28,15 +34,16 @@
     </div>
 
     <div id="plan-input" class="input-group">
+        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
         <input type="datetime-local" id="scheduled-time">
     </div>
 
     <div id="map"></div>
-    <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
     <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
+    <button id="cancel-edit-btn" onclick="exitEditMode()">修正をキャンセル</button>
 
     <div id="my-requests-container" style="margin-top:20px;">
-        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約・依頼</h3>
+        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約状況（クリックで修正）</h3>
         <div id="my-requests-list">読み込み中...</div>
     </div>
 
@@ -44,7 +51,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
@@ -58,18 +65,14 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        let userName = "ゲスト", mode = 'now', pickupMarker;
+        let userName = "ゲスト", mode = 'now', pickupMarker, editingId = null;
+        
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         async function sendAlert(action, data) {
-            try { 
-                await fetch(gasUrl, { 
-                    method: "POST", 
-                    mode: "no-cors", 
-                    body: JSON.stringify({ action, ...data }) 
-                }); 
-            } catch (e) { console.error("通知エラー:", e); }
+            try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
+            catch (e) { console.error("通知エラー:", e); }
         }
 
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
@@ -77,21 +80,50 @@
             else liff.login();
         });
 
-        window.getCurrentLocation = () => {
-            navigator.geolocation.getCurrentPosition(pos => {
-                const latlng = [pos.coords.latitude, pos.coords.longitude];
-                map.setView(latlng, 16);
-                if (pickupMarker) pickupMarker.setLatLng(latlng);
-                else pickupMarker = L.marker(latlng, { draggable: true }).addTo(map);
-            });
-        };
-        getCurrentLocation();
+        navigator.geolocation.getCurrentPosition(pos => {
+            const latlng = [pos.coords.latitude, pos.coords.longitude];
+            map.setView(latlng, 16);
+            pickupMarker = L.marker(latlng, { draggable: true }).addTo(map);
+        });
 
         window.switchMode = (m) => {
+            if(editingId) return; // 修正中はタブ切り替え不可
             mode = m;
             document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
             document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
             document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
+        };
+
+        // --- 修正モードに入る関数 ---
+        window.enterEditMode = async (id) => {
+            const snap = await getDoc(doc(db, "requests", id));
+            if (!snap.exists()) return;
+            const data = snap.data();
+
+            editingId = id;
+            mode = data.type;
+
+            // フォームに値をセット
+            switchMode(data.type);
+            if (data.type === 'plan') document.getElementById('scheduled-time').value = data.scheduledTime;
+            pickupMarker.setLatLng([data.latitude, data.longitude]);
+            map.setView([data.latitude, data.longitude], 17);
+
+            // UI切り替え
+            const btn = document.getElementById('request-btn');
+            btn.innerText = "予約内容を更新する";
+            btn.classList.add('edit-mode');
+            document.getElementById('cancel-edit-btn').style.display = "block";
+            window.scrollTo(0, 0);
+        };
+
+        window.exitEditMode = () => {
+            editingId = null;
+            const btn = document.getElementById('request-btn');
+            btn.innerText = (mode === 'now') ? '今すぐ呼ぶ' : '予約を確定する';
+            btn.classList.remove('edit-mode');
+            document.getElementById('cancel-edit-btn').style.display = "none";
+            document.getElementById('scheduled-time').value = "";
         };
 
         window.requestTaxi = async () => {
@@ -110,9 +142,18 @@
                     timestamp: serverTimestamp()
                 };
 
-                await addDoc(collection(db, "requests"), payload);
-                sendAlert("【新規】配車依頼/予約が届きました", payload);
-                alert("依頼を送信しました！");
+                if (editingId) {
+                    // 更新処理
+                    await updateDoc(doc(db, "requests", editingId), payload);
+                    sendAlert("【修正】予約内容が変更されました", payload);
+                    alert("修正が完了しました。");
+                    exitEditMode();
+                } else {
+                    // 新規登録
+                    await addDoc(collection(db, "requests"), payload);
+                    sendAlert("【新規】配車依頼が届きました", payload);
+                    alert("依頼を送信しました！");
+                }
             } catch (e) { alert("エラーが発生しました"); }
         };
 
@@ -127,30 +168,28 @@
                     const item = document.createElement("div");
                     item.className = `request-item ${data.type}`;
                     const timeInfo = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "今すぐ";
-                    item.innerHTML = `<button class="cancel-btn" onclick="cancelReq('${d.id}')">取消</button>
+                    
+                    item.innerHTML = `
+                        <button class="cancel-btn" onclick="event.stopPropagation(); cancelReq('${d.id}')">取消</button>
                         <b>${timeInfo}</b><br><small>${data.address}</small><br>
-                        <span style="font-size:0.8em; color:#007bff; font-weight:bold;">${data.status === 'arrived' ? '📍到着しました！' : (data.eta ? '🚗あと約'+data.eta+'分' : '🚕確認中')}</span>`;
+                        <span style="font-size:0.8em; color:#007bff;">${data.status === 'arrived' ? '📍到着！' : (data.eta ? '🚗あと'+data.eta+'分' : '🚕待機中')}</span>
+                    `;
+                    // クリックで修正モードへ
+                    item.onclick = () => enterEditMode(d.id);
                     list.appendChild(item);
                 });
             });
         }
 
-        window.cancelReq = async (id) => { 
+        window.cancelReq = async (id) => {
             if(confirm("依頼をキャンセルしますか？")) {
-                try {
-                    const ref = doc(db, "requests", id);
-                    const snap = await getDoc(ref);
-                    if (snap.exists()) {
-                        const data = snap.data();
-                        await deleteDoc(ref);
-                        // 削除後に通知を送る
-                        sendAlert("【取消】ユーザーにより依頼がキャンセルされました", data);
-                        alert("キャンセルを完了しました。");
-                    }
-                } catch (e) {
-                    await deleteDoc(doc(db, "requests", id));
-                }
-            } 
+                const ref = doc(db, "requests", id);
+                const snap = await getDoc(ref);
+                const data = snap.exists() ? snap.data() : null;
+                await deleteDoc(ref);
+                if(data) sendAlert("【取消】キャンセルされました", data);
+                if(editingId === id) exitEditMode();
+            }
         };
     </script>
 </body>
