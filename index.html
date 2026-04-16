@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（テンプレート機能付）</title>
+    <title>配車アプリ（完全版）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -10,12 +10,11 @@
         #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; }
         
         /* テンプレートエリア */
-        .template-section { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
-        .template-title { font-size: 12px; color: #666; margin-bottom: 5px; font-weight: bold; }
-        .template-btns { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 5px; }
-        .tpl-btn { background: #e9ecef; border: 1px solid #ccc; padding: 8px 12px; border-radius: 20px; font-size: 13px; white-space: nowrap; cursor: pointer; }
-        .tpl-btn:active { background: #dee2e6; }
-
+        .template-section { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .template-title { font-size: 12px; color: #666; margin-bottom: 8px; font-weight: bold; }
+        .template-btns { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; }
+        .tpl-btn { background: #f8f9fa; border: 1px solid #ddd; padding: 8px 15px; border-radius: 20px; font-size: 13px; white-space: nowrap; cursor: pointer; color: #333; }
+        
         .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
         .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
         .tab.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #28a745; }
@@ -28,21 +27,21 @@
         #request-btn.edit-mode { background: #007bff; }
         #cancel-edit-btn { width: 100%; margin-top: 5px; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 8px; display: none; cursor: pointer; }
 
-        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
         .request-item.plan { border-left-color: #f0ad4e; }
         .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; z-index: 10; }
+        .status-badge { display: inline-block; margin-top: 5px; font-weight: bold; font-size: 0.85em; }
     </style>
 </head>
 <body>
 
     <div class="template-section">
-        <div class="template-title">📍 よく使う場所をセット</div>
+        <div class="template-title">📍 お気に入りからセット</div>
         <div class="template-btns">
             <button class="tpl-btn" onclick="applyTemplate('羽田空港', 35.5494, 139.7798)">羽田空港</button>
             <button class="tpl-btn" onclick="applyTemplate('東京駅', 35.6812, 139.7671)">東京駅</button>
             <button id="custom-tpl-1" class="tpl-btn" onclick="useCustomTemplate(1)" oncontextmenu="saveCustomTemplate(1); return false;">自宅を保存(長押し)</button>
         </div>
-        <div style="font-size: 10px; color: #999; margin-top: 5px;">※右端は長押し(右クリック)で現在の場所を保存</div>
     </div>
 
     <div class="tabs">
@@ -51,6 +50,7 @@
     </div>
 
     <div id="plan-input" class="input-group">
+        <label style="font-size: 12px; color:#666;">お迎え希望日時：</label>
         <input type="datetime-local" id="scheduled-time">
     </div>
 
@@ -59,7 +59,7 @@
     <button id="cancel-edit-btn" onclick="exitEditMode()">修正をキャンセル</button>
 
     <div id="my-requests-container" style="margin-top:20px;">
-        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約状況</h3>
+        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約・依頼（タップで修正）</h3>
         <div id="my-requests-list">読み込み中...</div>
     </div>
 
@@ -86,45 +86,32 @@
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // --- テンプレート関連の関数 ---
+        // --- テンプレート機能 ---
         window.applyTemplate = (name, lat, lng) => {
             if(!pickupMarker) return;
-            const latlng = [lat, lng];
-            pickupMarker.setLatLng(latlng);
-            map.setView(latlng, 16);
+            pickupMarker.setLatLng([lat, lng]);
+            map.setView([lat, lng], 16);
             alert(name + "をセットしました");
         };
-
         window.saveCustomTemplate = (num) => {
             const pos = pickupMarker.getLatLng();
             const label = prompt("場所の名前を入力してください", "自宅");
-            if(!label) return;
-            const data = { label, lat: pos.lat, lng: pos.lng };
-            localStorage.setItem('tpl_' + num, JSON.stringify(data));
-            loadCustomButtons();
-            alert("保存しました");
-        };
-
-        window.useCustomTemplate = (num) => {
-            const saved = localStorage.getItem('tpl_' + num);
-            if(saved) {
-                const data = JSON.parse(saved);
-                applyTemplate(data.label, data.lat, data.lng);
-            } else {
-                alert("長押し（右クリック）で現在の場所を保存できます");
+            if(label) {
+                localStorage.setItem('tpl_'+num, JSON.stringify({label, lat: pos.lat, lng: pos.lng}));
+                loadCustomButtons();
             }
         };
-
+        window.useCustomTemplate = (num) => {
+            const saved = localStorage.getItem('tpl_'+num);
+            if(saved) { const d = JSON.parse(saved); applyTemplate(d.label, d.lat, d.lng); }
+        };
         function loadCustomButtons() {
             const saved = localStorage.getItem('tpl_1');
-            if(saved) {
-                const data = JSON.parse(saved);
-                document.getElementById('custom-tpl-1').innerText = data.label;
-            }
+            if(saved) document.getElementById('custom-tpl-1').innerText = JSON.parse(saved).label;
         }
         loadCustomButtons();
 
-        // --- Firebase/LIFF関連 ---
+        // --- Firebase / LIFF ---
         async function sendAlert(action, data) {
             try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
             catch (e) { console.error(e); }
@@ -165,13 +152,13 @@
 
             if (editingId) {
                 await updateDoc(doc(db, "requests", editingId), payload);
-                sendAlert("【修正】予約が変更されました", payload);
+                sendAlert("【修正】内容が変更されました", payload);
                 exitEditMode();
             } else {
                 await addDoc(collection(db, "requests"), payload);
                 sendAlert("【新規】配車依頼が届きました", payload);
             }
-            alert("送信完了！");
+            alert("送信完了しました！");
         };
 
         function watchMyRequests() {
@@ -184,14 +171,7 @@
                     if (data.status === "completed") return;
                     const item = document.createElement("div");
                     item.className = `request-item ${data.type}`;
-                    item.innerHTML = `<button class="cancel-btn" onclick="event.stopPropagation(); cancelReq('${d.id}')">取消</button>
-                        <b>${data.type==='plan'?'予約':'今すぐ'}</b><br><small>${data.address}</small>`;
-                    item.onclick = () => enterEditMode(d.id);
-                    list.appendChild(item);
-                });
-            });
-        }
-        window.cancelReq = async (id) => { if(confirm("消しますか？")) await deleteDoc(doc(db, "requests", id)); };
-    </script>
-</body>
-</html>
+                    
+                    // --- 復活させたステータス表示ロジック ---
+                    let statusHtml = "";
+                    if (data.status === 'arrived')
