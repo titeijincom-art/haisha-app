@@ -1,32 +1,49 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（修正機能付）</title>
+    <title>配車アプリ（テンプレート機能付）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; display: flex; flex-direction: column; min-height: 100vh; }
         #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; }
+        
+        /* テンプレートエリア */
+        .template-section { background: white; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+        .template-title { font-size: 12px; color: #666; margin-bottom: 5px; font-weight: bold; }
+        .template-btns { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 5px; }
+        .tpl-btn { background: #e9ecef; border: 1px solid #ccc; padding: 8px 12px; border-radius: 20px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+        .tpl-btn:active { background: #dee2e6; }
+
         .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
         .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
         .tab.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #28a745; }
+        
         .input-group { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: none; }
         .input-group.active { display: block; }
         input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         
-        /* ボタンのスタイル */
         #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
-        #request-btn.edit-mode { background: #007bff; } /* 修正時は青色 */
+        #request-btn.edit-mode { background: #007bff; }
         #cancel-edit-btn { width: 100%; margin-top: 5px; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 8px; display: none; cursor: pointer; }
 
-        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .request-item.plan { border-left-color: #f0ad4e; }
-        .request-item:hover { background: #f0f0f0; }
         .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; z-index: 10; }
     </style>
 </head>
 <body>
+
+    <div class="template-section">
+        <div class="template-title">📍 よく使う場所をセット</div>
+        <div class="template-btns">
+            <button class="tpl-btn" onclick="applyTemplate('羽田空港', 35.5494, 139.7798)">羽田空港</button>
+            <button class="tpl-btn" onclick="applyTemplate('東京駅', 35.6812, 139.7671)">東京駅</button>
+            <button id="custom-tpl-1" class="tpl-btn" onclick="useCustomTemplate(1)" oncontextmenu="saveCustomTemplate(1); return false;">自宅を保存(長押し)</button>
+        </div>
+        <div style="font-size: 10px; color: #999; margin-top: 5px;">※右端は長押し(右クリック)で現在の場所を保存</div>
+    </div>
 
     <div class="tabs">
         <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
@@ -34,7 +51,6 @@
     </div>
 
     <div id="plan-input" class="input-group">
-        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
         <input type="datetime-local" id="scheduled-time">
     </div>
 
@@ -43,7 +59,7 @@
     <button id="cancel-edit-btn" onclick="exitEditMode()">修正をキャンセル</button>
 
     <div id="my-requests-container" style="margin-top:20px;">
-        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約状況（クリックで修正）</h3>
+        <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約状況</h3>
         <div id="my-requests-list">読み込み中...</div>
     </div>
 
@@ -70,9 +86,48 @@
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+        // --- テンプレート関連の関数 ---
+        window.applyTemplate = (name, lat, lng) => {
+            if(!pickupMarker) return;
+            const latlng = [lat, lng];
+            pickupMarker.setLatLng(latlng);
+            map.setView(latlng, 16);
+            alert(name + "をセットしました");
+        };
+
+        window.saveCustomTemplate = (num) => {
+            const pos = pickupMarker.getLatLng();
+            const label = prompt("場所の名前を入力してください", "自宅");
+            if(!label) return;
+            const data = { label, lat: pos.lat, lng: pos.lng };
+            localStorage.setItem('tpl_' + num, JSON.stringify(data));
+            loadCustomButtons();
+            alert("保存しました");
+        };
+
+        window.useCustomTemplate = (num) => {
+            const saved = localStorage.getItem('tpl_' + num);
+            if(saved) {
+                const data = JSON.parse(saved);
+                applyTemplate(data.label, data.lat, data.lng);
+            } else {
+                alert("長押し（右クリック）で現在の場所を保存できます");
+            }
+        };
+
+        function loadCustomButtons() {
+            const saved = localStorage.getItem('tpl_1');
+            if(saved) {
+                const data = JSON.parse(saved);
+                document.getElementById('custom-tpl-1').innerText = data.label;
+            }
+        }
+        loadCustomButtons();
+
+        // --- Firebase/LIFF関連 ---
         async function sendAlert(action, data) {
             try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
-            catch (e) { console.error("通知エラー:", e); }
+            catch (e) { console.error(e); }
         }
 
         liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
@@ -87,74 +142,36 @@
         });
 
         window.switchMode = (m) => {
-            if(editingId) return; // 修正中はタブ切り替え不可
+            if(editingId) return;
             mode = m;
             document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
             document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
             document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
         };
 
-        // --- 修正モードに入る関数 ---
-        window.enterEditMode = async (id) => {
-            const snap = await getDoc(doc(db, "requests", id));
-            if (!snap.exists()) return;
-            const data = snap.data();
-
-            editingId = id;
-            mode = data.type;
-
-            // フォームに値をセット
-            switchMode(data.type);
-            if (data.type === 'plan') document.getElementById('scheduled-time').value = data.scheduledTime;
-            pickupMarker.setLatLng([data.latitude, data.longitude]);
-            map.setView([data.latitude, data.longitude], 17);
-
-            // UI切り替え
-            const btn = document.getElementById('request-btn');
-            btn.innerText = "予約内容を更新する";
-            btn.classList.add('edit-mode');
-            document.getElementById('cancel-edit-btn').style.display = "block";
-            window.scrollTo(0, 0);
-        };
-
-        window.exitEditMode = () => {
-            editingId = null;
-            const btn = document.getElementById('request-btn');
-            btn.innerText = (mode === 'now') ? '今すぐ呼ぶ' : '予約を確定する';
-            btn.classList.remove('edit-mode');
-            document.getElementById('cancel-edit-btn').style.display = "none";
-            document.getElementById('scheduled-time').value = "";
-        };
-
         window.requestTaxi = async () => {
             if (!pickupMarker) return;
             const pos = pickupMarker.getLatLng();
             const scheduledTime = document.getElementById('scheduled-time').value;
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
+            const addr = (await res.json()).display_name || "住所不明";
 
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
-                const addr = (await res.json()).display_name || "住所不明";
+            const payload = {
+                name: userName, latitude: pos.lat, longitude: pos.lng,
+                address: addr, status: "waiting", type: mode,
+                scheduledTime: mode === 'plan' ? scheduledTime : null,
+                timestamp: serverTimestamp()
+            };
 
-                const payload = {
-                    name: userName, latitude: pos.lat, longitude: pos.lng,
-                    address: addr, status: "waiting", type: mode,
-                    scheduledTime: mode === 'plan' ? scheduledTime : null,
-                    timestamp: serverTimestamp()
-                };
-
-                if (editingId) {
-                    // 更新処理
-                    await updateDoc(doc(db, "requests", editingId), payload);
-                    sendAlert("【修正】予約内容が変更されました", payload);
-                    alert("修正が完了しました。");
-                    exitEditMode();
-                } else {
-                    // 新規登録
-                    await addDoc(collection(db, "requests"), payload);
-                    sendAlert("【新規】配車依頼が届きました", payload);
-                    alert("依頼を送信しました！");
-                }
-            } catch (e) { alert("エラーが発生しました"); }
+            if (editingId) {
+                await updateDoc(doc(db, "requests", editingId), payload);
+                sendAlert("【修正】予約が変更されました", payload);
+                exitEditMode();
+            } else {
+                await addDoc(collection(db, "requests"), payload);
+                sendAlert("【新規】配車依頼が届きました", payload);
+            }
+            alert("送信完了！");
         };
 
         function watchMyRequests() {
@@ -167,30 +184,14 @@
                     if (data.status === "completed") return;
                     const item = document.createElement("div");
                     item.className = `request-item ${data.type}`;
-                    const timeInfo = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "今すぐ";
-                    
-                    item.innerHTML = `
-                        <button class="cancel-btn" onclick="event.stopPropagation(); cancelReq('${d.id}')">取消</button>
-                        <b>${timeInfo}</b><br><small>${data.address}</small><br>
-                        <span style="font-size:0.8em; color:#007bff;">${data.status === 'arrived' ? '📍到着！' : (data.eta ? '🚗あと'+data.eta+'分' : '🚕待機中')}</span>
-                    `;
-                    // クリックで修正モードへ
+                    item.innerHTML = `<button class="cancel-btn" onclick="event.stopPropagation(); cancelReq('${d.id}')">取消</button>
+                        <b>${data.type==='plan'?'予約':'今すぐ'}</b><br><small>${data.address}</small>`;
                     item.onclick = () => enterEditMode(d.id);
                     list.appendChild(item);
                 });
             });
         }
-
-        window.cancelReq = async (id) => {
-            if(confirm("依頼をキャンセルしますか？")) {
-                const ref = doc(db, "requests", id);
-                const snap = await getDoc(ref);
-                const data = snap.exists() ? snap.data() : null;
-                await deleteDoc(ref);
-                if(data) sendAlert("【取消】キャンセルされました", data);
-                if(editingId === id) exitEditMode();
-            }
-        };
+        window.cancelReq = async (id) => { if(confirm("消しますか？")) await deleteDoc(doc(db, "requests", id)); };
     </script>
 </body>
 </html>
