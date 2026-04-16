@@ -7,8 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; background: #f4f7f6; display: flex; flex-direction: column; min-height: 100vh; }
-        #top-section { flex: 0; }
-        #map { height: 300px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; }
+        #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 10px; flex-shrink: 0; }
         .tabs { display: flex; margin-bottom: 10px; background: #ddd; border-radius: 8px; padding: 4px; }
         .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 6px; font-weight: bold; }
         .tab.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #28a745; }
@@ -16,40 +15,28 @@
         .input-group.active { display: block; }
         input[type="datetime-local"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         #request-btn { width: 100%; padding: 15px; background: #28a745; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
-        
-        /* 予約一覧のスタイル */
-        #my-requests-container { margin-top: 20px; flex: 1; }
-        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 5px solid #28a745; position: relative; }
+        .request-item { background: white; padding: 12px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #28a745; position: relative; font-size: 0.9em; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .request-item.plan { border-left-color: #f0ad4e; }
-        .request-item h4 { margin: 0 0 5px 0; font-size: 0.95em; }
-        .request-item p { margin: 0; font-size: 0.8em; color: #666; line-height: 1.4; }
-        .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-top: 5px; }
-        .status-waiting { background: #eee; color: #666; }
-        .status-arrived { background: #ffeeba; color: #856404; }
         .cancel-btn { position: absolute; top: 10px; right: 10px; background: #ff4d4d; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.7em; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <div id="top-section">
-        <div id="status-message" style="text-align: center; font-weight: bold; margin-bottom: 10px;"></div>
-        
-        <div class="tabs">
-            <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
-            <div id="tab-plan" class="tab" onclick="switchMode('plan')">予約する</div>
-        </div>
-
-        <div id="plan-input" class="input-group">
-            <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
-            <input type="datetime-local" id="scheduled-time">
-        </div>
-
-        <div id="map"></div>
-        <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
-        <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
+    <div class="tabs">
+        <div id="tab-now" class="tab active" onclick="switchMode('now')">今すぐ呼ぶ</div>
+        <div id="tab-plan" class="tab" onclick="switchMode('plan')">予約する</div>
     </div>
 
-    <div id="my-requests-container">
+    <div id="plan-input" class="input-group">
+        <label style="font-size: 14px; color: #555;">お迎え希望日時：</label><br><br>
+        <input type="datetime-local" id="scheduled-time">
+    </div>
+
+    <div id="map"></div>
+    <button onclick="getCurrentLocation()" style="width:100%; margin-bottom:10px; padding:10px; background:#fff; border:1px solid #ccc; border-radius:8px;">現在地を再取得</button>
+    <button id="request-btn" onclick="requestTaxi()">配車を依頼する</button>
+
+    <div id="my-requests-container" style="margin-top:20px;">
         <h3 style="font-size: 1.1em; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📅 あなたの予約・依頼</h3>
         <div id="my-requests-list">読み込み中...</div>
     </div>
@@ -68,114 +55,82 @@
             messagingSenderId: "375707924539",
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
         };
+        const gasUrl = "https://script.google.com/macros/s/AKfycbyqP4ELbmwAcByfHy2r8AP3r_H6HXwf3GX8C37V9xACzOhKsPvqoA2F_E26vOFObCIJvg/exec";
+
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-
-        let userName = "ゲスト";
-        let currentMarker, pickupMarker, mode = 'now';
+        let userName = "ゲスト", mode = 'now', pickupMarker;
         const map = L.map('map').setView([35.6812, 139.7671], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        const redIcon = new L.Icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        async function sendAlert(action, data) {
+            try { await fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action, ...data }) }); } 
+            catch (e) { console.error("通知エラー:", e); }
+        }
+
+        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
+            if (liff.isLoggedIn()) liff.getProfile().then(p => { userName = p.displayName; watchMyRequests(); });
+            else liff.login();
         });
 
-        window.switchMode = (newMode) => {
-            mode = newMode;
+        window.getCurrentLocation = () => {
+            navigator.geolocation.getCurrentPosition(pos => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                map.setView(latlng, 16);
+                if (pickupMarker) pickupMarker.setLatLng(latlng);
+                else pickupMarker = L.marker(latlng, { draggable: true }).addTo(map);
+            });
+        };
+        getCurrentLocation();
+
+        window.switchMode = (m) => {
+            mode = m;
             document.getElementById('tab-now').className = (mode === 'now') ? 'tab active' : 'tab';
             document.getElementById('tab-plan').className = (mode === 'plan') ? 'tab active' : 'tab';
             document.getElementById('plan-input').className = (mode === 'plan') ? 'input-group active' : 'input-group';
-            document.getElementById('request-btn').innerText = (mode === 'now') ? '今すぐ呼ぶ' : '予約を確定する';
-        };
-
-        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
-            if (liff.isLoggedIn()) {
-                liff.getProfile().then(p => { 
-                    userName = p.displayName; 
-                    watchMyRequests(); 
-                });
-            } else { liff.login(); }
-        });
-
-        // 自分の依頼一覧をリアルタイム監視
-        function watchMyRequests() {
-            const listDiv = document.getElementById("my-requests-list");
-            const q = query(collection(db, "requests"), where("name", "==", userName));
-            
-            onSnapshot(q, (snapshot) => {
-                listDiv.innerHTML = "";
-                let activeCount = 0;
-
-                snapshot.forEach(docSnap => {
-                    const data = docSnap.data();
-                    if (data.status === "completed") return; // 完了分は出さない
-                    activeCount++;
-
-                    const item = document.createElement("div");
-                    item.className = `request-item ${data.type}`;
-                    
-                    const timeInfo = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "今すぐ呼ぶ";
-                    const statusText = data.status === "arrived" ? "📍 到着しました！" : (data.eta ? `🚗 あと約 ${data.eta} 分` : "🚕 待機中");
-                    const statusClass = data.status === "arrived" ? "status-arrived" : "status-waiting";
-
-                    item.innerHTML = `
-                        <button class="cancel-btn" onclick="cancelRequest('${docSnap.id}')">取消</button>
-                        <h4>${timeInfo}</h4>
-                        <p>📍 ${data.address || "住所取得中..."}</p>
-                        <span class="status-badge ${statusClass}">${statusText}</span>
-                    `;
-                    listDiv.appendChild(item);
-                });
-
-                if (activeCount === 0) {
-                    listDiv.innerHTML = "<p style='color:#999; font-size:0.8em;'>有効な依頼はありません</p>";
-                }
-            });
-        }
-
-        window.cancelRequest = async (id) => {
-            if (confirm("この依頼を取り消しますか？")) {
-                await deleteDoc(doc(db, "requests", id));
-            }
-        };
-
-        window.getCurrentLocation = () => {
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const latlng = [pos.coords.latitude, pos.coords.longitude];
-                map.setView(latlng, 17);
-                if (currentMarker) currentMarker.setLatLng(latlng);
-                else currentMarker = L.circleMarker(latlng, { radius: 8, color: 'blue' }).addTo(map);
-                if (pickupMarker) pickupMarker.setLatLng(latlng);
-                else pickupMarker = L.marker(latlng, { draggable: true, icon: redIcon }).addTo(map);
-            });
         };
 
         window.requestTaxi = async () => {
-            if (!pickupMarker) { alert("位置を取得してください"); return; }
+            if (!pickupMarker) return;
             const pos = pickupMarker.getLatLng();
             const scheduledTime = document.getElementById('scheduled-time').value;
-            if (mode === 'plan' && !scheduledTime) { alert("予約時間を選択してください"); return; }
 
             try {
-                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}&addressdetails=1`);
-                const addressData = await response.json();
-                const address = addressData.display_name || "住所不明";
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
+                const addr = (await res.json()).display_name || "住所不明";
 
-                await addDoc(collection(db, "requests"), {
-                    name: userName,
-                    latitude: pos.lat,
-                    longitude: pos.lng,
-                    address: address,
-                    status: "waiting",
-                    type: mode,
+                const payload = {
+                    name: userName, latitude: pos.lat, longitude: pos.lng,
+                    address: addr, status: "waiting", type: mode,
                     scheduledTime: mode === 'plan' ? scheduledTime : null,
                     timestamp: serverTimestamp()
-                });
-                alert("依頼を送信しました！下のリストから状況を確認できます。");
-            } catch (e) { alert("エラー: " + e.message); }
+                };
+
+                await addDoc(collection(db, "requests"), payload);
+                sendAlert("【新規】配車依頼/予約が届きました", payload);
+                alert("依頼を送信しました！");
+            } catch (e) { alert("エラーが発生しました"); }
         };
+
+        function watchMyRequests() {
+            const q = query(collection(db, "requests"), where("name", "==", userName));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById("my-requests-list");
+                list.innerHTML = "";
+                snapshot.forEach(d => {
+                    const data = d.data();
+                    if (data.status === "completed") return;
+                    const item = document.createElement("div");
+                    item.className = `request-item ${data.type}`;
+                    const timeInfo = data.type === 'plan' ? `予約：${data.scheduledTime.replace('T', ' ')}` : "今すぐ";
+                    item.innerHTML = `<button class="cancel-btn" onclick="cancelReq('${d.id}')">取消</button>
+                        <b>${timeInfo}</b><br><small>${data.address}</small><br>
+                        <span style="font-size:0.8em; color:#007bff;">${data.eta ? '🚗あと約'+data.eta+'分' : '🚕確認中'}</span>`;
+                    list.appendChild(item);
+                });
+            });
+        }
+        window.cancelReq = async (id) => { if(confirm("依頼をキャンセルしますか？")) await deleteDoc(doc(db, "requests", id)); };
     </script>
 </body>
 </html>
