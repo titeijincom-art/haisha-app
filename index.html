@@ -3,34 +3,29 @@
 <head>
     <title>タクシー配車（社長専用）</title>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
-        body { font-family: -apple-system, sans-serif; margin: 0; background: #f8f9fa; overflow: hidden; }
-        #map { height: 60vh; width: 100%; z-index: 1; }
-        
+        body { font-family: -apple-system, sans-serif; margin: 0; background: #f8f9fa; }
+        #map { height: 60vh; width: 100%; background: #eee; }
         .container { padding: 15px; max-width: 500px; margin: auto; position: relative; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
             box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
             margin-top: -20px; position: relative; z-index: 1000; 
         }
-        
         h2 { font-size: 1.1rem; margin-top: 0; color: #333; text-align: center; }
         .input-group { margin-bottom: 15px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
-        
+        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; color: #333; }
         .btn-call { 
             width: 100%; padding: 18px; border: none; border-radius: 12px; 
             font-size: 1.2rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
         }
-        .btn-call:active { transform: scale(0.96); opacity: 0.8; }
         .btn-call:disabled { background: #ccc; }
-
         .status-badge { 
             margin-top: 15px; text-align: center; padding: 12px; border-radius: 10px; 
             background: #fffbe6; color: #856404; font-weight: bold; font-size: 0.9rem; border: 1px solid #ffe58f;
@@ -46,7 +41,7 @@
             <h2>🚕 配車リクエスト</h2>
             
             <div class="input-group">
-                <label>現在地（地図を動かして調整）</label>
+                <label>配車場所（地図を動かして調整）</label>
                 <input type="text" id="address" value="位置情報を取得中..." readonly>
             </div>
 
@@ -64,8 +59,7 @@
                 </div>
             </div>
 
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()">ここに呼ぶ</button>
-
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()" disabled>位置取得を待機中...</button>
             <div id="status-badge" class="status-badge">ステータス: 待機中</div>
         </div>
     </div>
@@ -91,7 +85,7 @@
 
         let map, centerMarker, userLineId = "";
 
-        // 地図の初期化（タイミングを制御）
+        // 地図のセットアップ
         function setupMap(lat, lon) {
             if (map) return;
             map = L.map('map').setView([lat, lon], 16);
@@ -102,43 +96,57 @@
             map.on('move', () => {
                 const center = map.getCenter();
                 centerMarker.setLatLng(center);
+            });
+
+            map.on('moveend', () => {
+                const center = map.getCenter();
                 updateAddress(center.lat, center.lng);
             });
             
             updateAddress(lat, lon);
+            
+            // ボタンを有効化
+            const btn = document.getElementById("submitBtn");
+            btn.disabled = false;
+            btn.innerText = "ここに呼ぶ";
         }
 
         async function updateAddress(lat, lng) {
             try {
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                 const data = await res.json();
-                document.getElementById("address").value = data.display_name.split(',')[0] || "不明な場所";
-            } catch (e) { document.getElementById("address").value = "住所取得エラー"; }
+                const addr = data.address;
+                // 日本語の住所を整える
+                const displayAddr = (addr.province || "") + (addr.city || addr.town || "") + (addr.suburb || "") + (addr.neighbourhood || "");
+                document.getElementById("address").value = displayAddr || data.display_name.split(',')[0];
+            } catch (e) { 
+                document.getElementById("address").value = "住所取得エラー (地図を動かしてください)";
+            }
         }
 
         async function initLiff() {
             try {
                 await liff.init({ liffId: "2004245903-kY3aEEnQ" });
-                if (!liff.isLoggedIn()) {
-                    liff.login();
-                } else {
+                if (liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     userLineId = profile.userId;
                     watchStatus();
+                } else {
+                    liff.login();
                 }
             } catch (e) { console.error("LIFFエラー:", e); }
         }
 
         window.toggleTime = () => {
-            const type = document.getElementById("requestType").value;
-            document.getElementById("timeInput").style.display = type === "plan" ? "block" : "none";
+            document.getElementById("timeInput").style.display = 
+                document.getElementById("requestType").value === "plan" ? "block" : "none";
         };
 
         window.sendRequest = async () => {
             const center = map.getCenter();
             const requestData = {
-                userId: userLineId,
-                name: "社長", // 名前を固定
+                userId: userLineId || "guest",
+                name: "社長",
                 address: document.getElementById("address").value,
                 latitude: center.lat,
                 longitude: center.lng,
@@ -155,42 +163,46 @@
             try {
                 await addDoc(collection(db, "requests"), requestData);
                 fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                alert("依頼を送信しました。");
+                alert("リクエストを送信しました");
             } catch (e) {
-                alert("エラー: " + e.message);
+                alert("送信エラー: " + e.message);
                 btn.disabled = false;
                 btn.innerText = "もう一度送る";
             }
         };
 
         function watchStatus() {
+            if (!userLineId) return;
             const q = query(collection(db, "requests"), where("userId", "==", userLineId), orderBy("timestamp", "desc"), limit(1));
             onSnapshot(q, (snapshot) => {
                 snapshot.forEach(d => {
                     const data = d.data();
                     const badge = document.getElementById("status-badge");
-                    if (data.status === "waiting") badge.innerText = "🚕 配車を待機しています...";
+                    if (data.status === "waiting") badge.innerText = "🚕 ドライバーを待っています";
                     if (data.status === "heading") badge.innerText = `🚕 向かっています (あと${data.eta||'?'}分)`;
-                    if (data.status === "arrived") badge.innerText = "📍 到着しました。";
+                    if (data.status === "arrived") badge.innerText = "📍 到着しました";
                     if (data.status === "completed") {
-                        badge.innerText = "✅ 完了しました";
+                        badge.innerText = "✅ 完了";
                         document.getElementById("submitBtn").disabled = false;
-                        document.getElementById("submitBtn").innerText = "再度依頼する";
+                        document.getElementById("submitBtn").innerText = "ここに呼ぶ";
                     }
                 });
             });
         }
 
-        // ページ読み込み時に位置情報を取得して地図を表示
-        window.onload = () => {
+        // 起動処理
+        window.addEventListener('load', () => {
             navigator.geolocation.getCurrentPosition(
                 (pos) => { setupMap(pos.coords.latitude, pos.coords.longitude); },
-                () => { setupMap(35.6812, 139.7671); }, // 失敗時
-                { enableHighAccuracy: true }
+                (err) => { 
+                    console.error(err);
+                    setupMap(35.6812, 139.7671); // 拒否時は東京駅を表示
+                    alert("位置情報の取得を許可してください");
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
             );
             initLiff();
-        };
-
+        });
     </script>
 </body>
 </html>
