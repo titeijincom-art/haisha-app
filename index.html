@@ -8,7 +8,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 45vh; width: 100%; background: #eee; }
+        #map { height: 45vh; width: 100%; background: #ddd; position: relative; z-index: 1; }
         
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
@@ -26,7 +26,7 @@
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
             font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; margin-top: 5px;
         }
-        .btn-call:disabled { background: #555; opacity: 0.6; }
+        .btn-call:active { opacity: 0.7; }
 
         .history-section { margin-top: 15px; }
         .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
@@ -34,7 +34,7 @@
             background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000;
         }
-        .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; }
         .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; }
         .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; }
         .status-waiting { background: #fff3cd; color: #856404; }
@@ -50,7 +50,7 @@
         <div class="form-card">
             <div class="input-group">
                 <label>配車場所（地図を動かして調整）</label>
-                <input type="text" id="address" value="地図読み込み中..." readonly>
+                <input type="text" id="address" value="読み込み中..." readonly>
             </div>
 
             <div class="input-group flex-box">
@@ -67,7 +67,7 @@
                 </div>
             </div>
 
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()" disabled>読み込み中...</button>
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()">ここに呼ぶ</button>
         </div>
 
         <div class="history-section">
@@ -96,53 +96,10 @@
 
         let map, centerMarker, userLineId = "";
 
-        // 1. 地図を最優先で表示
-        function setupMap(lat, lon) {
-            try {
-                map = L.map('map', { zoomControl: false }).setView([lat, lon], 17);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                centerMarker = L.marker([lat, lon]).addTo(map);
-
-                map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
-                map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
-                
-                updateAddress(lat, lon);
-                document.getElementById("submitBtn").disabled = false;
-                document.getElementById("submitBtn").innerText = "ここに呼ぶ";
-            } catch (e) { console.error("Map Error:", e); }
-        }
-
-        // 2. 住所取得（失敗してもエラーで止めない）
-        async function updateAddress(lat, lng) {
-            const addrInput = document.getElementById("address");
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
-                const data = await res.json();
-                addrInput.value = data.display_name.split(',').slice(0, 3).join('') || "指定した地点";
-            } catch (e) { addrInput.value = "地図上の位置で送信します"; }
-        }
-
-        window.toggleTime = () => {
-            const isPlan = document.getElementById("requestType").value === "plan";
-            document.getElementById("timeInput").style.display = isPlan ? "block" : "none";
-        };
-
-        window.sendRequest = async () => {
-            const center = map.getCenter();
-            const requestData = {
-                userId: userLineId || "president_direct",
-                name: "社長",
-                address: document.getElementById("address").value,
-                latitude: center.lat,
-                longitude: center.lng,
-                type: document.getElementById("requestType").value,
-                scheduledTime: document.getElementById("scheduledTime").value || "なし",
-                status: "waiting",
-                timestamp: new Date()
-            };
-
-            try {
-                await addDoc(collection(db, "requests"), requestData);
-                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                alert("リクエストを送信しました");
-            } catch (e) { alert("エラー: " + e.message); }
+        // 1. 地図の初期化（即座に実行）
+        function initMap() {
+            // デフォルト：東京駅付近
+            const defLat = 35.6812, defLon = 139.7671;
+            map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            centerMarker = L.marker([defLat, defLon
