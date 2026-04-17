@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車管理（ドライバー用・地図付）</title>
+    <title>配車管理システム - ドライバー用</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
@@ -9,32 +9,31 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 10px; background: #2c3e50; color: white; }
-        h2 { font-size: 1.2em; margin: 10px 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+        body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #1a1a1a; color: #eee; }
+        #admin-map { height: 280px; width: 100%; border-radius: 12px; margin-bottom: 15px; background: #333; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
         
-        /* 地図のスタイル */
-        #admin-map { height: 300px; width: 100%; border-radius: 12px; margin-bottom: 15px; background: #34495e; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        
-        .request-card { background: #34495e; border-radius: 12px; padding: 15px; margin-bottom: 15px; border-left: 5px solid #f1c40f; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
-        .user-name { font-size: 1.1em; font-weight: bold; color: #f1c40f; margin-bottom: 5px; }
-        .addr-text { font-size: 0.9em; color: #ecf0f1; margin-bottom: 10px; }
+        .request-card { background: #2d2d2d; border-radius: 12px; padding: 15px; margin-bottom: 15px; border-left: 5px solid #ffc107; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .user-name { font-size: 1.1em; font-weight: bold; color: #ffc107; margin-bottom: 5px; }
+        .addr-text { font-size: 0.9em; color: #ccc; margin-bottom: 12px; line-height: 1.4; }
         
         .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        button { border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        .btn-eta { background: #e67e22; color: white; }
-        .btn-arrive { background: #e74c3c; color: white; }
-        .btn-complete { background: #27ae60; color: white; grid-column: span 2; margin-top: 5px; }
+        button { border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:active { transform: scale(0.95); opacity: 0.8; }
         
-        .status-info { font-size: 0.85em; color: #bdc3c7; margin-top: 8px; }
+        .btn-eta { background: #555; color: white; }
+        .btn-arrive { background: #d93025; color: white; }
+        .btn-complete { background: #28a745; color: white; grid-column: span 2; margin-top: 5px; }
+        
+        .status-info { font-size: 0.8em; color: #888; margin-top: 10px; text-align: right; }
     </style>
 </head>
 <body>
 
-    <h2>🚕 配車依頼（地図・リスト）</h2>
+    <h2 style="font-size: 1.1em; margin: 5px 0 10px 5px;">🚕 配車管理（最新URL版）</h2>
     
-    <div id="admin-map">地図読み込み中...</div>
+    <div id="admin-map"></div>
 
-    <div id="admin-list">依頼を読み込み中...</div>
+    <div id="admin-list">データを読み込み中...</div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
@@ -50,50 +49,56 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const gasUrl = "https://script.google.com/macros/s/AKfycbzCMHpD8xPVBarObKyBMaoEh0fsSBH0cHRxyftbkbNuJxSqnEjXuFYKOpe0yA7ZWGys9Q/exec";
+        
+        // ★新しいGASのURLに差し替え完了
+        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
         let map, markers = {};
 
-        // 1. 地図の初期化
         function initMap() {
+            if (map) return;
             map = L.map('admin-map').setView([35.6812, 139.7671], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
 
-        // 2. 通知・更新機能
+        // 到着通知をLINEへ送信
         window.markAsArrived = async (id, userId) => {
             if (!confirm("お客様へ到着通知を送りますか？")) return;
             try {
                 await updateDoc(doc(db, "requests", id), { status: "arrived" });
-                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【到着】", userId: userId }) });
-                alert("通知を送信しました");
+                
+                fetch(gasUrl, { 
+                    method: "POST", 
+                    mode: "no-cors", 
+                    body: JSON.stringify({ action: "【到着】", userId: userId }) 
+                });
+                alert("到着通知を送信しました");
             } catch (e) { alert("エラー: " + e.message); }
         };
 
+        // 到着予定時間を更新
         window.updateETA = async (id) => {
             const min = prompt("あと何分で到着しますか？", "5");
             if (min) await updateDoc(doc(db, "requests", id), { eta: min, status: "heading" });
         };
 
+        // 完了処理
         window.completeJob = async (id) => {
-            if (confirm("完了にしてリストから消しますか？")) {
+            if (confirm("この依頼を完了（非表示）にしますか？")) {
                 await updateDoc(doc(db, "requests", id), { status: "completed" });
             }
         };
 
-        // 3. データの監視
         initMap();
         const q = query(collection(db, "requests"), orderBy("timestamp", "desc"));
         onSnapshot(q, (snapshot) => {
             const listDiv = document.getElementById("admin-list");
             listDiv.innerHTML = "";
-            
-            // 地図上の古いマーカーを一旦消去（更新のため）
             Object.values(markers).forEach(m => map.removeLayer(m));
             markers = {};
 
             if (snapshot.empty) {
-                listDiv.innerHTML = "<p>現在、依頼はありません。</p>";
+                listDiv.innerHTML = "<p style='text-align:center; color:#888;'>現在、依頼はありません。</p>";
                 return;
             }
 
@@ -101,38 +106,32 @@
                 const data = d.data();
                 if (data.status === "completed") return;
 
-                // 地図にピンを立てる
                 if (data.latitude && data.longitude) {
-                    const m = L.marker([data.latitude, data.longitude])
-                             .addTo(map)
-                             .bindPopup(`${data.name}様 (${data.status})`);
+                    const m = L.marker([data.latitude, data.longitude]).addTo(map);
                     markers[d.id] = m;
                 }
 
-                // リスト表示
                 const card = document.createElement("div");
                 card.className = "request-card";
                 card.innerHTML = `
-                    <div class="user-name">${data.name} 様 <small>(${data.type==='plan'?'予約':'今すぐ'})</small></div>
+                    <div class="user-name">${data.name} 様 <span style="font-size:0.7em; background:#444; padding:2px 6px; border-radius:4px; color:#fff;">${data.type==='plan'?'予約':'今すぐ'}</span></div>
                     <div class="addr-text">📍 ${data.address}</div>
                     <div class="btn-group">
                         <button class="btn-eta" onclick="updateETA('${d.id}')">🕐 あと${data.eta || '?'}分</button>
                         <button class="btn-arrive" onclick="markAsArrived('${d.id}', '${data.userId}')">📍 到着通知</button>
                         <button class="btn-complete" onclick="completeJob('${d.id}')">✅ 完了</button>
                     </div>
-                    <div class="status-info">現在の状態: ${data.status}</div>
+                    <div class="status-info">現在のステータス: ${data.status}</div>
                 `;
                 listDiv.appendChild(card);
             });
 
-            // 依頼がある場合、最初の依頼の場所に地図を合わせる
-            const first = snapshot.docs.find(doc => doc.data().status !== "completed");
-            if (first) {
-                const d = first.data();
-                map.panTo([d.latitude, d.longitude]);
+            const activeDocs = snapshot.docs.filter(doc => doc.data().status !== "completed");
+            if (activeDocs.length > 0) {
+                const lastPos = activeDocs[0].data();
+                if(lastPos.latitude) map.panTo([lastPos.latitude, lastPos.longitude]);
             }
         });
-
     </script>
 </body>
 </html>
