@@ -7,26 +7,41 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; margin: 0; background: #f8f9fa; touch-action: manipulation; }
-        #map { height: 65vh; width: 100%; background: #ddd; z-index: 1; }
+        body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
+        #map { height: 50vh; width: 100%; background: #ddd; }
+        
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
             box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
             margin-top: -30px; position: relative; z-index: 1000; 
         }
-        .input-group { margin-bottom: 12px; }
-        label { display: block; font-size: 0.7rem; color: #999; margin-bottom: 4px; }
-        input { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 0.95rem; background: #fdfdfd; }
+        
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
+        input { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
+        
         .btn-call { 
-            width: 100%; padding: 18px; border: none; border-radius: 12px; 
-            font-size: 1.2rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
+            width: 100%; padding: 16px; border: none; border-radius: 12px; 
+            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
         }
         .btn-call:disabled { background: #555; opacity: 0.6; }
-        .status-badge { 
-            margin-top: 12px; text-align: center; padding: 10px; border-radius: 10px; 
-            background: #fffbe6; color: #856404; font-weight: bold; font-size: 0.85rem; border: 1px solid #ffe58f;
+
+        /* 依頼履歴リストのスタイル */
+        .history-section { margin-top: 20px; }
+        .history-title { font-size: 0.9rem; font-weight: bold; color: #666; margin-bottom: 10px; padding-left: 5px; }
+        .request-item { 
+            background: white; border-radius: 15px; padding: 15px; margin-bottom: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-left: 5px solid #000;
         }
+        .req-addr { font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; }
+        .req-info { font-size: 0.8rem; color: #777; display: flex; justify-content: space-between; }
+        .status-tag { 
+            display: inline-block; padding: 3px 8px; border-radius: 5px; font-size: 0.75rem; font-weight: bold;
+        }
+        .status-waiting { background: #fff3cd; color: #856404; }
+        .status-heading { background: #cfe2ff; color: #084298; }
+        .status-arrived { background: #d1e7dd; color: #0f5132; }
     </style>
 </head>
 <body>
@@ -36,137 +51,13 @@
     <div class="container">
         <div class="form-card">
             <div class="input-group">
-                <label>配車場所（地図を動かすと更新）</label>
-                <input type="text" id="address" value="地図を読み込み中..." readonly>
+                <label>配車場所（地図を動かして調整）</label>
+                <input type="text" id="address" value="位置情報を取得中..." readonly>
             </div>
-
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()" disabled>位置取得中...</button>
-            <div id="status-badge" class="status-badge">ステータス: 待機中</div>
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()" disabled>読み込み中...</button>
         </div>
-    </div>
 
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
-
-        const firebaseConfig = { 
-            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
-            authDomain: "loser-12855.firebaseapp.com", 
-            projectId: "loser-12855", 
-            storageBucket: "loser-12855.firebasestorage.app", 
-            messagingSenderId: "375707924539", 
-            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
-        };
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
-
-        let map, centerMarker, userLineId = "";
-
-        function setupMap(lat, lon) {
-            if (map) return;
-            map = L.map('map', { zoomControl: false }).setView([lat, lon], 17);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            centerMarker = L.marker([lat, lon]).addTo(map);
-
-            map.on('move', () => {
-                centerMarker.setLatLng(map.getCenter());
-            });
-
-            // 地図が止まったら住所を取得（少し余裕を持たせる）
-            map.on('moveend', () => {
-                const center = map.getCenter();
-                updateAddress(center.lat, center.lng);
-            });
-            
-            updateAddress(lat, lon);
-            document.getElementById("submitBtn").disabled = false;
-            document.getElementById("submitBtn").innerText = "ここに呼ぶ";
-        }
-
-        async function updateAddress(lat, lng) {
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
-                    headers: { 'Accept-Language': 'ja' }
-                });
-                const data = await res.json();
-                // 住所が取れなくても、最悪座標を表示
-                document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-            } catch (e) { 
-                document.getElementById("address").value = "地図上の位置で指定（住所取得制限中）";
-            }
-        }
-
-        async function initLiff() {
-            try {
-                await liff.init({ liffId: "2004245903-kY3aEEnQ" });
-                if (liff.isLoggedIn()) {
-                    const profile = await liff.getProfile();
-                    userLineId = profile.userId;
-                    watchStatus();
-                } else { liff.login(); }
-            } catch (e) { console.error(e); }
-        }
-
-        window.sendRequest = async () => {
-            const center = map.getCenter();
-            const addrValue = document.getElementById("address").value;
-            
-            const requestData = {
-                userId: userLineId || "president_direct",
-                name: "社長",
-                address: addrValue,
-                latitude: center.lat,
-                longitude: center.lng,
-                type: "now",
-                status: "waiting",
-                timestamp: new Date()
-            };
-
-            const btn = document.getElementById("submitBtn");
-            btn.disabled = true;
-            btn.innerText = "送信中...";
-
-            try {
-                await addDoc(collection(db, "requests"), requestData);
-                // GASへの通知は失敗してもリクエスト自体は通す
-                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) }).catch(()=>null);
-                alert("配車を依頼しました。");
-            } catch (e) {
-                alert("送信に失敗しました。電波の良い場所で再度お試しください。");
-                btn.disabled = false;
-                btn.innerText = "ここに呼ぶ";
-            }
-        };
-
-        function watchStatus() {
-            const q = query(collection(db, "requests"), where("userId", "==", userLineId), orderBy("timestamp", "desc"), limit(1));
-            onSnapshot(q, (snapshot) => {
-                snapshot.forEach(d => {
-                    const data = d.data();
-                    const badge = document.getElementById("status-badge");
-                    if (data.status === "waiting") badge.innerText = "🚕 配車を待機しています...";
-                    if (data.status === "heading") badge.innerText = `🚕 向かっています (あと${data.eta||'?'}分)`;
-                    if (data.status === "arrived") badge.innerText = "📍 到着しました。";
-                    if (data.status === "completed") {
-                        badge.innerText = "✅ 完了しました";
-                        document.getElementById("submitBtn").disabled = false;
-                        document.getElementById("submitBtn").innerText = "再度依頼する";
-                    }
-                });
-            });
-        }
-
-        window.onload = () => {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => { setupMap(pos.coords.latitude, pos.coords.longitude); },
-                () => { setupMap(35.6812, 139.7671); }, 
-                { enableHighAccuracy: true }
-            );
-            initLiff();
-        };
-    </script>
-</body>
-</html>
+        <div class="history-section">
+            <div class="history-title">現在の依頼状況</div>
+            <div id="history-list">
+                <p style="text-align:center; color:#999; font-size:0.8rem; margin-top:20px;">アクティブな依頼はありません
