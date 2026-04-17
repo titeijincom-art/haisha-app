@@ -8,7 +8,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 45vh; width: 100%; background: #eee; position: relative; z-index: 1; }
+        #map { height: 40vh; width: 100%; background: #eee; position: relative; z-index: 1; }
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
@@ -17,11 +17,11 @@
         }
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
-        .flex-box { display: flex; gap: 10px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; -webkit-appearance: none; }
+        .flex-box { display: flex; gap: 10px; flex-wrap: wrap; }
         .btn-call { 
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
-            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer;
+            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; margin-top: 5px;
         }
         .history-section { margin-top: 15px; }
         .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
@@ -30,8 +30,8 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000;
         }
         .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; }
-        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; }
-        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; }
+        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; }
+        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; }
         .status-waiting { background: #fff3cd; color: #856404; }
         .status-heading { background: #cfe2ff; color: #084298; }
         .status-arrived { background: #d1e7dd; color: #0f5132; }
@@ -47,24 +47,25 @@
                 <label>配車場所（地図を動かして調整）</label>
                 <input type="text" id="address" value="読み込み中..." readonly>
             </div>
-            <div class="input-group flex-box">
-                <div style="flex: 1;">
-                    <label>利用タイプ</label>
-                    <select id="requestType" onchange="toggleTime()">
-                        <option value="now">今すぐ呼ぶ</option>
-                        <option value="plan">予約する</option>
-                    </select>
-                </div>
-                <div id="timeInput" style="flex: 1; display:none;">
-                    <label>予約時間</label>
-                    <input type="time" id="scheduledTime">
-                </div>
+            
+            <div class="input-group">
+                <label>利用タイプ</label>
+                <select id="requestType">
+                    <option value="now">今すぐ呼ぶ</option>
+                    <option value="plan">予約する（日時指定）</option>
+                </select>
             </div>
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()">ここに呼ぶ</button>
+
+            <div id="timeInputArea" class="input-group" style="display:none;">
+                <label>予約日時</label>
+                <input type="datetime-local" id="scheduledTime">
+            </div>
+
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
         </div>
 
         <div class="history-section">
-            <div class="history-title">現在の依頼状況（最新）</div>
+            <div class="history-title">現在の状況</div>
             <div id="history-list">
                 <p style="text-align:center; color:#999; font-size:0.8rem; padding:20px;">読み込み中...</p>
             </div>
@@ -87,92 +88,4 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
-
-        let map, centerMarker, userLineId = "";
-
-        // 地図初期化
-        function initMap() {
-            const defLat = 35.6812, defLon = 139.7671;
-            map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            centerMarker = L.marker([defLat, defLon]).addTo(map);
-
-            map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
-            map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
-
-            navigator.geolocation.getCurrentPosition((pos) => {
-                map.setView([pos.coords.latitude, pos.coords.longitude], 16);
-                centerMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
-                updateAddress(pos.coords.latitude, pos.coords.longitude);
-            }, null, { enableHighAccuracy: true });
-        }
-
-        async function updateAddress(lat, lng) {
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
-                const data = await res.json();
-                document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById("address").value = "地図の位置で依頼"; }
-        }
-
-        window.toggleTime = () => {
-            document.getElementById("timeInput").style.display = document.getElementById("requestType").value === "plan" ? "block" : "none";
-        };
-
-        window.sendRequest = async () => {
-            const center = map.getCenter();
-            const requestData = {
-                userId: userLineId || "president",
-                name: "社長",
-                address: document.getElementById("address").value,
-                latitude: center.lat,
-                longitude: center.lng,
-                type: document.getElementById("requestType").value,
-                scheduledTime: document.getElementById("scheduledTime").value || "なし",
-                status: "waiting",
-                timestamp: new Date()
-            };
-            try {
-                await addDoc(collection(db, "requests"), requestData);
-                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                alert("依頼しました");
-            } catch (e) { alert("エラー: " + e.message); }
-        };
-
-        // ★絞り込みをせず、最新の全データを表示するように修正（社長専用なのでこれでOK）
-        function renderHistory() {
-            const q = query(collection(db, "requests"), orderBy("timestamp", "desc"), limit(3));
-            onSnapshot(q, (snapshot) => {
-                const list = document.getElementById("history-list");
-                list.innerHTML = "";
-                if (snapshot.empty) {
-                    list.innerHTML = '<p style="text-align:center; color:#999; font-size:0.8rem; padding:20px;">現在依頼はありません</p>';
-                    return;
-                }
-                snapshot.forEach(doc => {
-                    const d = doc.data();
-                    if (d.status === "completed") return;
-                    const tag = d.status === "heading" ? "status-heading" : (d.status === "arrived" ? "status-arrived" : "status-waiting");
-                    const txt = d.status === "heading" ? `向かっています (${d.eta||'?'}分)` : (d.status === "arrived" ? "到着" : "待機中");
-                    const item = document.createElement("div");
-                    item.className = "request-item";
-                    item.innerHTML = `<div class="req-addr">📍 ${d.address}</div><div class="req-info"><span>${d.type==='plan'?'予約':'今すぐ'}</span><span class="status-tag ${tag}">${txt}</span></div>`;
-                    list.appendChild(item);
-                });
-            });
-        }
-
-        // 実行
-        initMap();
-        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
-            if (liff.isLoggedIn()) {
-                liff.getProfile().then(p => { userLineId = p.userId; renderHistory(); });
-            } else {
-                renderHistory(); // ログインなしでも履歴表示を試みる
-                liff.login();
-            }
-        }).catch(() => renderHistory());
-    </script>
-</body>
-</html>
+        const gasUrl = "
