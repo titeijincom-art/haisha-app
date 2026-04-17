@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（完全修正版）</title>
+    <title>配車アプリ - 完成版</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
@@ -9,148 +9,184 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 10px; background: #f0f2f5; }
-        #map { height: 250px; width: 100%; border-radius: 12px; margin-bottom: 12px; background: #ddd; }
-        .template-section { background: white; padding: 12px; border-radius: 12px; margin-bottom: 12px; }
-        .template-btns { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; }
-        .tpl-btn { background: #fff; border: 1px solid #ddd; padding: 8px 16px; border-radius: 20px; font-size: 13px; white-space: nowrap; font-weight: bold; }
-        .tabs { display: flex; margin-bottom: 10px; background: #e0e0e0; border-radius: 10px; padding: 4px; }
-        .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 8px; font-weight: bold; }
-        .tab.active { background: white; color: #28a745; }
-        .input-group { background: white; padding: 15px; border-radius: 12px; margin-bottom: 12px; display: none; }
-        .input-group.active { display: block; }
-        #request-btn { width: 100%; padding: 16px; background: #28a745; color: white; border: none; border-radius: 12px; font-size: 1.1em; font-weight: bold; }
-        .request-item { background: white; padding: 15px; border-radius: 12px; margin-bottom: 10px; border-left: 6px solid #28a745; position: relative; }
-        .status-badge { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.9em; }
-        .status-arrived { background: #fff1f0; color: #d93025; border: 1px solid #ffccc7; }
-        .status-eta { background: #e7f3ff; color: #007bff; border: 1px solid #b3d7ff; }
-        .cancel-btn { position: absolute; top: 12px; right: 12px; background: #eee; border: none; border-radius: 6px; padding: 5px 10px; font-size: 0.75em; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 12px; background: #f0f2f5; color: #333; }
+        #map { height: 260px; width: 100%; border-radius: 12px; margin-bottom: 12px; background: #ddd; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        
+        .template-btns { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; }
+        .tpl-btn { background: #fff; border: 1px solid #ddd; padding: 8px 16px; border-radius: 20px; font-size: 13px; white-space: nowrap; font-weight: bold; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+        .tabs { display: flex; background: #e0e0e0; border-radius: 10px; padding: 4px; margin-bottom: 12px; }
+        .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 8px; font-weight: bold; color: #666; }
+        .tab.active { background: white; color: #28a745; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        input[type="datetime-local"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; margin-bottom: 12px; box-sizing: border-box; }
+
+        #request-btn { width: 100%; padding: 18px; background: #28a745; color: white; border: none; border-radius: 12px; font-size: 1.1em; font-weight: bold; box-shadow: 0 4px 10px rgba(40,167,69,0.3); }
+        
+        .request-item { background: white; padding: 16px; border-radius: 12px; margin-top: 12px; border-left: 6px solid #28a745; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+        .status-badge { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.9em; background: #e7f3ff; color: #007bff; }
+        .status-arrived { background: #fff1f0; color: #d93025; }
     </style>
 </head>
 <body>
 
-    <div class="template-section">
-        <div class="template-btns">
-            <button class="tpl-btn" onclick="window.applyTemplate('羽田空港', 35.5494, 139.7798)">✈️ 羽田空港</button>
-            <button class="tpl-btn" onclick="window.applyTemplate('東京駅', 35.6812, 139.7671)">🚅 東京駅</button>
-            <button id="custom-tpl-1" class="tpl-btn" onclick="window.useCustomTemplate(1)" oncontextmenu="window.saveCustomTemplate(1); return false;">🏠 自宅保存</button>
-        </div>
+    <div class="template-btns">
+        <button class="tpl-btn" onclick="window.setPos(35.5494, 139.7798)">✈️ 羽田空港</button>
+        <button class="tpl-btn" onclick="window.setPos(35.6812, 139.7671)">🚅 東京駅</button>
+        <button id="custom-tpl-1" class="tpl-btn" onclick="window.useCustomTemplate(1)" oncontextmenu="window.saveCustomTemplate(1); return false;">🏠 自宅保存</button>
     </div>
 
     <div class="tabs">
-        <div id="tab-now" class="tab active" onclick="window.switchMode('now')">今すぐ</div>
-        <div id="tab-plan" class="tab" onclick="window.switchMode('plan')">予約</div>
+        <div id="tab-now" class="tab active" onclick="window.chMode('now')">今すぐ</div>
+        <div id="tab-plan" class="tab" onclick="window.chMode('plan')">予約</div>
     </div>
 
-    <div id="plan-input" class="input-group">
-        <input type="datetime-local" id="scheduled-time">
-    </div>
+    <input type="datetime-local" id="s-time" style="display:none;">
 
-    <div id="map"></div>
-    <button id="request-btn" onclick="window.requestTaxi()">この場所で配車を依頼する</button>
+    <div id="map">地図を読み込んでいます...</div>
+    
+    <button id="request-btn" onclick="window.sendReq()">配車を依頼する</button>
 
-    <div style="margin-top:20px;">
-        <h3 style="font-size: 1.1em;">🚕 現在の状況</h3>
-        <div id="my-requests-list">読み込み中...</div>
+    <div style="margin-top:24px;">
+        <h3 style="font-size: 1.1em; margin-bottom:10px;">🚕 現在の状況</h3>
+        <div id="list"></div>
     </div>
 
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-        // 2. Firebase設定
-        const firebaseConfig = {
-            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A",
-            authDomain: "loser-12855.firebaseapp.com",
-            projectId: "loser-12855",
-            storageBucket: "loser-12855.firebasestorage.app",
-            messagingSenderId: "375707924539",
-            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e"
+        const firebaseConfig = { 
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
+            authDomain: "loser-12855.firebaseapp.com", 
+            projectId: "loser-12855", 
+            storageBucket: "loser-12855.firebasestorage.app", 
+            messagingSenderId: "375707924539", 
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        let userName = "ゲスト", mode = 'now', map, pickupMarker, editingId = null;
+        const gasUrl = "https://script.google.com/macros/s/AKfycbzCMHpD8xPVBarObKyBMaoEh0fsSBH0cHRxyftbkbNuJxSqnEjXuFYKOpe0yA7ZWGys9Q/exec";
 
-        // 3. 地図初期化（確実に実行されるように定義）
-        function initMap() {
-            if (map) return; // 二重初期化防止
-            map = L.map('map').setView([35.6812, 139.7671], 13);
+        let map, marker, mode = 'now', user = {};
+
+        // 1. 地図初期化
+        async function initMap() {
+            if (map) return;
+            map = L.map('map').setView([35.6812, 139.7671], 15);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            pickupMarker = L.marker([35.6812, 139.7671], { draggable: true }).addTo(map);
-            
-            navigator.geolocation.getCurrentPosition(pos => {
-                const latlng = [pos.coords.latitude, pos.coords.longitude];
-                map.setView(latlng, 16);
-                pickupMarker.setLatLng(latlng);
-            }, () => console.log("GPS利用不可"));
+            marker = L.marker([35.6812, 139.7671], { draggable: true }).addTo(map);
+
+            navigator.geolocation.getCurrentPosition(p => {
+                const ll = [p.coords.latitude, p.coords.longitude];
+                map.setView(ll, 16);
+                marker.setLatLng(ll);
+            }, () => {}, { enableHighAccuracy: true });
         }
 
-        // 4. 関数を window オブジェクトに紐付けて外から呼べるようにする
-        window.switchMode = (m) => {
-            mode = m;
+        window.setPos = (lat, lng) => { 
+            if(!marker) return;
+            marker.setLatLng([lat, lng]); 
+            map.setView([lat, lng], 16); 
+        };
+
+        window.chMode = (m) => { 
+            mode = m; 
             document.getElementById('tab-now').className = (m === 'now') ? 'tab active' : 'tab';
             document.getElementById('tab-plan').className = (m === 'plan') ? 'tab active' : 'tab';
-            document.getElementById('plan-input').style.display = (m === 'plan') ? 'block' : 'none';
+            document.getElementById('s-time').style.display = m === 'plan' ? 'block' : 'none'; 
         };
 
-        window.applyTemplate = (name, lat, lng) => {
-            pickupMarker.setLatLng([lat, lng]);
-            map.setView([lat, lng], 16);
-        };
+        // 2. 依頼送信
+        window.sendReq = async () => {
+            const btn = document.getElementById('request-btn');
+            btn.disabled = true;
+            btn.innerText = "送信中...";
 
-        window.requestTaxi = async () => {
-            const pos = pickupMarker.getLatLng();
-            const sTime = document.getElementById('scheduled-time').value;
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
-            const addr = (await res.json()).display_name || "地図上の地点";
-            await addDoc(collection(db, "requests"), {
-                name: userName, latitude: pos.lat, longitude: pos.lng,
-                address: addr, status: "waiting", type: mode,
-                scheduledTime: mode === 'plan' ? sTime : null,
-                timestamp: serverTimestamp()
-            });
-            alert("依頼しました！");
-        };
+            const pos = marker.getLatLng();
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`);
+                const addr = (await res.json()).display_name || "不明な場所";
+                
+                const sTime = document.getElementById('s-time').value;
+                const data = {
+                    name: user.name,
+                    userId: user.id,
+                    latitude: pos.lat,
+                    longitude: pos.lng,
+                    address: addr,
+                    status: "waiting",
+                    type: mode,
+                    scheduledTime: mode === 'plan' ? sTime : null,
+                    timestamp: serverTimestamp()
+                };
 
-        window.cancelReq = async (id) => {
-            if(confirm("取り消しますか？")) await deleteDoc(doc(db, "requests", id));
-        };
-
-        // 5. LIFF/Firestore監視
-        liff.init({ liffId: "2009796540-v9rIRiac" }).then(() => {
-            initMap(); // LIFF準備完了後に地図を出す
-            if (liff.isLoggedIn()) {
-                liff.getProfile().then(p => { 
-                    userName = p.displayName; 
-                    watchMyRequests(); 
+                await addDoc(collection(db, "requests"), data);
+                
+                // GASに通知依頼（管理者宛）
+                fetch(gasUrl, { 
+                    method: "POST", 
+                    mode: "no-cors", 
+                    body: JSON.stringify({ action: "【新規】", ...data }) 
                 });
-            } else { liff.login(); }
+
+                alert("依頼しました！あなたのLINEにも通知が届きます。");
+            } catch (e) {
+                alert("エラーが発生しました: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "配車を依頼する";
+            }
+        };
+
+        // 3. LIFF初期化
+        liff.init({ liffId: "2009796540-v9rIRiac" }).then(async () => {
+            if (!liff.isLoggedIn()) {
+                liff.login();
+            } else {
+                const profile = await liff.getProfile();
+                user = { id: profile.userId, name: profile.displayName };
+                initMap();
+                watchData();
+            }
         }).catch(err => {
             console.error(err);
-            initMap(); // エラーでも地図だけは出す
+            initMap(); // LIFFが失敗しても地図は出す
         });
 
-        function watchMyRequests() {
-            const q = query(collection(db, "requests"), where("name", "==", userName));
-            onSnapshot(q, (snapshot) => {
-                const list = document.getElementById("my-requests-list");
-                list.innerHTML = "";
-                snapshot.forEach(d => {
-                    const data = d.data();
-                    if (data.status === "completed") return;
-                    const item = document.createElement("div");
-                    item.className = `request-item ${data.type}`;
-                    let statusHtml = data.status === 'arrived' 
-                        ? '<div class="status-badge status-arrived">📍 車が到着しました！</div>' 
-                        : (data.eta ? `<div class="status-badge status-eta">🚗 あと ${data.eta} 分</div>` : '<div class="status-badge">⌛ 確認中</div>');
+        function watchData() {
+            const q = query(collection(db, "requests"), where("userId", "==", user.id));
+            onSnapshot(q, (snap) => {
+                const listDiv = document.getElementById("list");
+                listDiv.innerHTML = "";
+                if (snap.empty) {
+                    listDiv.innerHTML = "<p style='color:#999; font-size:13px;'>現在の依頼はありません</p>";
+                }
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    if (d.status === "completed") return;
                     
+                    const item = document.createElement("div");
+                    item.className = "request-item";
+                    
+                    let statusLabel = "⌛ 確認中...";
+                    let badgeClass = "status-badge";
+                    
+                    if (d.status === 'arrived') {
+                        statusLabel = "📍 到着しました！";
+                        badgeClass += " status-arrived";
+                    } else if (d.eta) {
+                        statusLabel = `🚗 あと ${d.eta} 分`;
+                    }
+
                     item.innerHTML = `
-                        <button class="cancel-btn" onclick="window.cancelReq('${d.id}')">取消</button>
-                        <b>${data.type === 'plan' ? '📅 予約' : '🚕 今すぐ'}</b><br>
-                        <small>${data.address}</small>${statusHtml}
+                        <b>${d.type === 'plan' ? '📅 予約' : '🚕 今すぐ'}</b><br>
+                        <small style="color:#666;">${d.scheduledTime ? d.scheduledTime.replace('T', ' ') : ''}</small><br>
+                        <small>📍 ${d.address}</small><br>
+                        <span class="${badgeClass}">${statusLabel}</span>
                     `;
-                    list.appendChild(item);
+                    listDiv.appendChild(item);
                 });
             });
         }
