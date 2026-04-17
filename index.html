@@ -51,13 +51,13 @@
                 <label>利用タイプ</label>
                 <select id="requestType">
                     <option value="now">今すぐ呼ぶ</option>
-                    <option value="plan">予約する（5分刻み）</option>
+                    <option value="plan">予約する</option>
                 </select>
             </div>
 
             <div id="timeInputArea" class="input-group" style="display:none;">
-                <label>予約日時（5分単位で選択可能）</label>
-                <input type="datetime-local" id="scheduledTime" step="300">
+                <label>予約日時（5分単位で送信されます）</label>
+                <input type="datetime-local" id="scheduledTime" step="300" onblur="roundTo5Min(this)">
             </div>
 
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
@@ -89,24 +89,28 @@
 
         let map, centerMarker, userLineId = "";
 
-        // 予約日時の初期値を「現在時刻の5分切り上げ」に設定する関数
-        function setDefaultTime() {
-            const now = new Date();
-            now.setMinutes(Math.ceil(now.getMinutes() / 5) * 5); // 5分単位に切り上げ
-            now.setSeconds(0);
-            now.setMilliseconds(0);
+        // ★ 5分単位に丸めるスクリプト
+        window.roundTo5Min = (input) => {
+            if (!input.value) return;
+            let date = new Date(input.value);
+            let minutes = date.getMinutes();
+            // 5分単位で一番近い方に丸める
+            let roundedMinutes = Math.round(minutes / 5) * 5;
+            date.setMinutes(roundedMinutes);
+            date.setSeconds(0);
             
-            // datetime-local形式 (YYYY-MM-DDThh:mm) に変換
-            const offset = now.getTimezoneOffset() * 60000;
-            const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
-            document.getElementById("scheduledTime").value = localISOTime;
-        }
+            const offset = date.getTimezoneOffset() * 60000;
+            input.value = (new Date(date - offset)).toISOString().slice(0, 16);
+        };
 
         document.getElementById('requestType').addEventListener('change', (e) => {
             const area = document.getElementById("timeInputArea");
             if (e.target.value === "plan") {
                 area.style.display = "block";
-                setDefaultTime(); // 予約を選んだ時に初期時刻を入れる
+                const now = new Date();
+                const input = document.getElementById("scheduledTime");
+                input.value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                roundTo5Min(input);
             } else {
                 area.style.display = "none";
             }
@@ -137,7 +141,11 @@
         window.sendRequest = async () => {
             const center = map.getCenter();
             const type = document.getElementById("requestType").value;
-            const time = document.getElementById("scheduledTime").value;
+            const timeInput = document.getElementById("scheduledTime");
+            
+            // 送信前にも念のため丸める
+            if (type === "plan") roundTo5Min(timeInput);
+
             const requestData = {
                 userId: userLineId || "president",
                 name: "社長",
@@ -145,7 +153,7 @@
                 latitude: center.lat,
                 longitude: center.lng,
                 type: type,
-                scheduledTime: time || "なし",
+                scheduledTime: timeInput.value || "なし",
                 status: "waiting",
                 timestamp: new Date()
             };
