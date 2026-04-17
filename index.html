@@ -4,180 +4,88 @@
     <title>タクシー配車依頼</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
     <style>
-        body { font-family: -apple-system, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 500px; margin: auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        h1 { font-size: 1.5rem; text-align: center; color: #2c3e50; margin-bottom: 25px; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
+        body { font-family: -apple-system, sans-serif; margin: 0; background: #f8f9fa; }
+        #map { height: 350px; width: 100%; }
+        
+        .container { padding: 20px; max-width: 500px; margin: auto; }
+        .form-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top: -30px; position: relative; z-index: 1000; }
+        
+        h2 { font-size: 1.2rem; margin-top: 0; color: #333; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.8rem; color: #777; margin-bottom: 5px; }
         input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
         
-        .btn-main { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; }
-        .btn-call { background: #ffc107; color: #000; }
-        .btn-call:disabled { background: #ccc; cursor: not-allowed; }
-        
-        .status-box { margin-top: 25px; padding: 15px; border-radius: 8px; background: #e9ecef; text-align: center; }
-        #status-text { font-weight: bold; color: #d93025; }
+        .btn-call { width: 100%; padding: 15px; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: bold; background: #ffc107; color: #000; cursor: pointer; }
+        .btn-call:active { transform: scale(0.98); }
+        .btn-call:disabled { background: #ccc; }
+
+        .status-badge { margin-top: 15px; text-align: center; padding: 10px; border-radius: 8px; background: #eee; font-weight: bold; font-size: 0.9rem; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>🚕 タクシーを呼ぶ</h1>
-    
-    <div class="form-group">
-        <label>お名前</label>
-        <input type="text" id="userName" placeholder="例：山田 太郎">
+    <div id="map"></div>
+
+    <div class="container">
+        <div class="form-card">
+            <h2>🚕 配車リクエスト</h2>
+            
+            <div class="input-group">
+                <label>お名前</label>
+                <input type="text" id="userName" placeholder="読み込み中...">
+            </div>
+
+            <div class="input-group">
+                <label>配車場所（地図の中心が送信されます）</label>
+                <input type="text" id="address" readonly>
+            </div>
+
+            <div class="input-group">
+                <label>利用タイプ</label>
+                <select id="requestType" onchange="toggleTime()">
+                    <option value="now">今すぐ呼ぶ</option>
+                    <option value="plan">予約する</option>
+                </select>
+            </div>
+
+            <div id="timeInput" class="input-group" style="display:none;">
+                <label>予約時間</label>
+                <input type="time" id="scheduledTime">
+            </div>
+
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()">この場所に呼ぶ</button>
+
+            <div id="status-badge" class="status-badge">ステータス: 待機中</div>
+        </div>
     </div>
 
-    <div class="form-group">
-        <label>配車場所（自動取得）</label>
-        <input type="text" id="address" placeholder="位置情報を取得中...">
-    </div>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
-    <div class="form-group">
-        <label>利用方法</label>
-        <select id="requestType" onchange="toggleTime()">
-            <option value="now">今すぐ呼ぶ</option>
-            <option value="plan">予約する</option>
-        </select>
-    </div>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
-    <div id="timeInput" class="form-group" style="display:none;">
-        <label>予約時間</label>
-        <input type="time" id="scheduledTime">
-    </div>
-
-    <button id="submitBtn" class="btn-main btn-call" onclick="sendRequest()">タクシーを呼ぶ</button>
-
-    <div class="status-box">
-        <div>現在の状況</div>
-        <div id="status-text">待機中</div>
-    </div>
-</div>
-
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
-<script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
-
-    const firebaseConfig = { 
-        apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
-        authDomain: "loser-12855.firebaseapp.com", 
-        projectId: "loser-12855", 
-        storageBucket: "loser-12855.firebasestorage.app", 
-        messagingSenderId: "375707924539", 
-        appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-
-    // ★新しいGASのURL
-    const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
-
-    let userLineId = "";
-    let userLat = null, userLon = null;
-
-    // 1. LIFF初期化 & ユーザーID取得
-    async function initLiff() {
-        try {
-            await liff.init({ liffId: "2004245903-kY3aEEnQ" });
-            if (!liff.isLoggedIn()) {
-                liff.login();
-            } else {
-                const profile = await liff.getProfile();
-                userLineId = profile.userId;
-                document.getElementById("userName").value = profile.displayName;
-                watchStatus(); // ステータス監視開始
-            }
-        } catch (e) { console.error("LIFFエラー:", e); }
-    }
-
-    // 2. 位置情報取得 & 逆ジオコーディング
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-        userLat = pos.coords.latitude;
-        userLon = pos.coords.longitude;
-        try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${userLat}&lon=${userLon}`);
-            const data = await res.json();
-            document.getElementById("address").value = data.display_name.split(',')[0];
-        } catch (e) { document.getElementById("address").value = "住所取得失敗"; }
-    });
-
-    // 予約時間の表示切り替え
-    window.toggleTime = () => {
-        const type = document.getElementById("requestType").value;
-        document.getElementById("timeInput").style.display = type === "plan" ? "block" : "none";
-    };
-
-    // 3. 依頼送信処理
-    window.sendRequest = async () => {
-        const name = document.getElementById("userName").value;
-        const address = document.getElementById("address").value;
-        const type = document.getElementById("requestType").value;
-        const time = document.getElementById("scheduledTime").value;
-
-        if (!name || !address) return alert("お名前と場所を入力してください");
-
-        const btn = document.getElementById("submitBtn");
-        btn.disabled = true;
-        btn.innerText = "送信中...";
-
-        const requestData = {
-            userId: userLineId,
-            name: name,
-            address: address,
-            latitude: userLat,
-            longitude: userLon,
-            type: type,
-            scheduledTime: time || "なし",
-            status: "waiting",
-            timestamp: new Date()
+        const firebaseConfig = { 
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
+            authDomain: "loser-12855.firebaseapp.com", 
+            projectId: "loser-12855", 
+            storageBucket: "loser-12855.firebasestorage.app", 
+            messagingSenderId: "375707924539", 
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
-        try {
-            // Firebaseに保存
-            await addDoc(collection(db, "requests"), requestData);
+        let map, centerMarker, userLineId = "";
 
-            // ★GAS経由で管理者にLINE通知を送る
-            fetch(gasUrl, {
-                method: "POST",
-                mode: "no-cors",
-                body: JSON.stringify({ action: "【新規】", ...requestData })
-            });
-
-            alert("配車を依頼しました。通知をお待ちください。");
-            document.getElementById("status-text").innerText = "配車を探しています...";
-        } catch (e) {
-            alert("エラーが発生しました: " + e.message);
-            btn.disabled = false;
-        }
-    };
-
-    // 4. 自分の依頼ステータスをリアルタイム監視
-    function watchStatus() {
-        const q = query(
-            collection(db, "requests"), 
-            where("userId", "==", userLineId),
-            orderBy("timestamp", "desc"),
-            limit(1)
-        );
-        onSnapshot(q, (snapshot) => {
-            snapshot.forEach(d => {
-                const status = d.data().status;
-                const eta = d.data().eta || "?";
-                const statusText = document.getElementById("status-text");
-
-                if (status === "waiting") statusText.innerText = "ドライバーを探しています...";
-                if (status === "heading") statusText.innerText = `🚕 向かっています（あと${eta}分）`;
-                if (status === "arrived") statusText.innerText = "📍 到着しました！外へ出てください";
-                if (status === "completed") statusText.innerText = "ご利用ありがとうございました！";
-            });
-        });
-    }
-
-    initLiff();
-</script>
-</body>
-</html>
+        // 地図の初期化
+        function initMap(lat, lon) {
+            map = L.map('map').setView([lat, lon], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap
