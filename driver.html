@@ -8,19 +8,13 @@
         body { font-family: sans-serif; margin: 0; padding: 15px; background: #343a40; color: white; }
         h2 { border-bottom: 2px solid #495057; padding-bottom: 10px; }
         .request-card { background: #495057; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .req-info { margin-bottom: 10px; line-height: 1.6; }
         .user-name { font-size: 1.2em; font-weight: bold; color: #ffc107; }
-        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 5px; }
-        .badge-now { background: #e74c3c; }
-        .badge-plan { background: #3498db; }
-        
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 5px; background: #e74c3c; }
         .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         button { border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.9em; }
-        .btn-arrive { background: #d93025; color: white; } /* 到着通知 */
-        .btn-eta { background: #f39c12; color: white; }    /* ETA更新 */
-        .btn-complete { background: #28a745; color: white; grid-column: span 2; } /* 完了 */
-        
-        .status-text { color: #aaa; font-size: 0.9em; margin-top: 5px; }
+        .btn-arrive { background: #d93025; color: white; }
+        .btn-eta { background: #f39c12; color: white; }
+        .btn-complete { background: #28a745; color: white; grid-column: span 2; }
     </style>
 </head>
 <body>
@@ -44,12 +38,11 @@
         const db = getFirestore(app);
         const gasUrl = "https://script.google.com/macros/s/AKfycbzCMHpD8xPVBarObKyBMaoEh0fsSBH0cHRxyftbkbNuJxSqnEjXuFYKOpe0yA7ZWGys9Q/exec";
 
-        // 1. 到着通知を送る
+        // 関数をwindowに登録してHTMLから呼べるようにする
         window.markAsArrived = async (id, userId) => {
             if (!confirm("お客様のLINEに到着通知を送りますか？")) return;
             try {
                 await updateDoc(doc(db, "requests", id), { status: "arrived" });
-                // GAS経由でLINE送信
                 fetch(gasUrl, {
                     method: "POST",
                     mode: "no-cors",
@@ -59,8 +52,48 @@
             } catch (e) { alert("エラー: " + e.message); }
         };
 
-        // 2. 到着予定（あと〇分）を更新
         window.updateETA = async (id) => {
             const minutes = prompt("あと何分で到着しますか？", "5");
             if (minutes) {
                 await updateDoc(doc(db, "requests", id), { eta: minutes, status: "heading" });
+            }
+        };
+
+        window.completeJob = async (id) => {
+            if (confirm("この依頼を完了（非表示）にしますか？")) {
+                await updateDoc(doc(db, "requests", id), { status: "completed" });
+            }
+        };
+
+        // データのリアルタイム監視
+        const q = query(collection(db, "requests"), orderBy("timestamp", "desc"));
+        onSnapshot(q, (snapshot) => {
+            const listDiv = document.getElementById("admin-list");
+            listDiv.innerHTML = "";
+            if (snapshot.empty) {
+                listDiv.innerHTML = "<p>現在、新しい依頼はありません。</p>";
+                return;
+            }
+            snapshot.forEach(d => {
+                const data = d.data();
+                if (data.status === "completed") return;
+                const card = document.createElement("div");
+                card.className = "request-card";
+                card.innerHTML = `
+                    <div class="user-name">${data.name} 様</div>
+                    📍 <b>場所:</b> ${data.address}<br>
+                    ステータス: ${data.status} ${data.eta ? '('+data.eta+'分)' : ''}
+                    <div class="btn-group">
+                        <button class="btn-eta" onclick="updateETA('${d.id}')">🕐 ETA更新</button>
+                        <button class="btn-arrive" onclick="markAsArrived('${d.id}', '${data.userId}')">📍 到着通知</button>
+                        <button class="btn-complete" onclick="completeJob('${d.id}')">✅ 完了</button>
+                    </div>
+                `;
+                listDiv.appendChild(card);
+            });
+        }, (err) => {
+            document.getElementById("admin-list").innerText = "エラーが発生しました: " + err.message;
+        });
+    </script>
+</body>
+</html>
