@@ -88,4 +88,105 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const gasUrl = "
+        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
+
+        let map, centerMarker, userLineId = "";
+
+        // 予約フォームの表示切り替え（確実なイベント登録）
+        document.getElementById('requestType').addEventListener('change', (e) => {
+            const area = document.getElementById("timeInputArea");
+            area.style.display = e.target.value === "plan" ? "block" : "none";
+        });
+
+        function initMap() {
+            const defLat = 35.6812, defLon = 139.7671;
+            map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            centerMarker = L.marker([defLat, defLon]).addTo(map);
+
+            map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
+            map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
+
+            navigator.geolocation.getCurrentPosition((pos) => {
+                map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+                centerMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+                updateAddress(pos.coords.latitude, pos.coords.longitude);
+            }, null, { enableHighAccuracy: true });
+        }
+
+        async function updateAddress(lat, lng) {
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
+                const data = await res.json();
+                document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
+            } catch (e) { document.getElementById("address").value = "地図の位置で指定中"; }
+        }
+
+        window.sendRequest = async () => {
+            const center = map.getCenter();
+            const type = document.getElementById("requestType").value;
+            const time = document.getElementById("scheduledTime").value;
+
+            if (type === "plan" && !time) {
+                alert("予約日時を選択してください");
+                return;
+            }
+
+            const requestData = {
+                userId: userLineId || "president",
+                name: "社長",
+                address: document.getElementById("address").value,
+                latitude: center.lat,
+                longitude: center.lng,
+                type: type,
+                scheduledTime: time || "なし",
+                status: "waiting",
+                timestamp: new Date()
+            };
+
+            try {
+                await addDoc(collection(db, "requests"), requestData);
+                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
+                alert("依頼を送信しました");
+            } catch (e) { alert("エラー: " + e.message); }
+        };
+
+        function renderHistory() {
+            const q = query(collection(db, "requests"), orderBy("timestamp", "desc"), limit(5));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById("history-list");
+                list.innerHTML = "";
+                if (snapshot.empty) {
+                    list.innerHTML = '<p style="text-align:center; color:#999; font-size:0.8rem; padding:20px;">履歴はありません</p>';
+                    return;
+                }
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    if (d.status === "completed") return;
+                    const tag = d.status === "heading" ? "status-heading" : (d.status === "arrived" ? "status-arrived" : "status-waiting");
+                    const txt = d.status === "heading" ? `向かっています` : (d.status === "arrived" ? "到着" : "待機中");
+                    const timeLabel = d.type === "plan" ? `📅 予約: ${d.scheduledTime.replace('T', ' ')}` : "⚡ 今すぐ";
+                    
+                    const item = document.createElement("div");
+                    item.className = "request-item";
+                    item.innerHTML = `
+                        <div class="req-addr">📍 ${d.address}</div>
+                        <div class="req-info">
+                            <span>${timeLabel}</span>
+                            <span class="status-tag ${tag}">${txt}</span>
+                        </div>
+                    `;
+                    list.appendChild(item);
+                });
+            });
+        }
+
+        initMap();
+        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
+            if (liff.isLoggedIn()) {
+                liff.getProfile().then(p => { userLineId = p.userId; renderHistory(); });
+            } else { renderHistory(); liff.login(); }
+        }).catch(() => renderHistory());
+    </script>
+</body>
+</html>
