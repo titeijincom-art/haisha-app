@@ -8,37 +8,35 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 50vh; width: 100%; background: #ddd; }
+        #map { height: 45vh; width: 100%; background: #eee; }
         
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
             box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
-            margin-top: -30px; position: relative; z-index: 1000; 
+            margin-top: -25px; position: relative; z-index: 1000; 
         }
         
-        .input-group { margin-bottom: 15px; }
+        .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
         
+        .flex-box { display: flex; gap: 10px; }
         .btn-call { 
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
-            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
+            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; margin-top: 5px;
         }
         .btn-call:disabled { background: #555; opacity: 0.6; }
 
-        /* 依頼履歴リストのスタイル */
-        .history-section { margin-top: 20px; }
-        .history-title { font-size: 0.9rem; font-weight: bold; color: #666; margin-bottom: 10px; padding-left: 5px; }
+        .history-section { margin-top: 15px; }
+        .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
         .request-item { 
-            background: white; border-radius: 15px; padding: 15px; margin-bottom: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-left: 5px solid #000;
+            background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000;
         }
-        .req-addr { font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; }
-        .req-info { font-size: 0.8rem; color: #777; display: flex; justify-content: space-between; }
-        .status-tag { 
-            display: inline-block; padding: 3px 8px; border-radius: 5px; font-size: 0.75rem; font-weight: bold;
-        }
+        .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; }
+        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; }
         .status-waiting { background: #fff3cd; color: #856404; }
         .status-heading { background: #cfe2ff; color: #084298; }
         .status-arrived { background: #d1e7dd; color: #0f5132; }
@@ -52,12 +50,99 @@
         <div class="form-card">
             <div class="input-group">
                 <label>配車場所（地図を動かして調整）</label>
-                <input type="text" id="address" value="位置情報を取得中..." readonly>
+                <input type="text" id="address" value="地図読み込み中..." readonly>
             </div>
+
+            <div class="input-group flex-box">
+                <div style="flex: 1;">
+                    <label>利用タイプ</label>
+                    <select id="requestType" onchange="toggleTime()">
+                        <option value="now">今すぐ呼ぶ</option>
+                        <option value="plan">予約する</option>
+                    </select>
+                </div>
+                <div id="timeInput" style="flex: 1; display:none;">
+                    <label>予約時間</label>
+                    <input type="time" id="scheduledTime">
+                </div>
+            </div>
+
             <button id="submitBtn" class="btn-call" onclick="sendRequest()" disabled>読み込み中...</button>
         </div>
 
         <div class="history-section">
             <div class="history-title">現在の依頼状況</div>
-            <div id="history-list">
-                <p style="text-align:center; color:#999; font-size:0.8rem; margin-top:20px;">アクティブな依頼はありません
+            <div id="history-list"></div>
+        </div>
+    </div>
+
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+
+        const firebaseConfig = { 
+            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
+            authDomain: "loser-12855.firebaseapp.com", 
+            projectId: "loser-12855", 
+            storageBucket: "loser-12855.firebasestorage.app", 
+            messagingSenderId: "375707924539", 
+            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
+
+        let map, centerMarker, userLineId = "";
+
+        // 1. 地図を最優先で表示
+        function setupMap(lat, lon) {
+            try {
+                map = L.map('map', { zoomControl: false }).setView([lat, lon], 17);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                centerMarker = L.marker([lat, lon]).addTo(map);
+
+                map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
+                map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
+                
+                updateAddress(lat, lon);
+                document.getElementById("submitBtn").disabled = false;
+                document.getElementById("submitBtn").innerText = "ここに呼ぶ";
+            } catch (e) { console.error("Map Error:", e); }
+        }
+
+        // 2. 住所取得（失敗してもエラーで止めない）
+        async function updateAddress(lat, lng) {
+            const addrInput = document.getElementById("address");
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
+                const data = await res.json();
+                addrInput.value = data.display_name.split(',').slice(0, 3).join('') || "指定した地点";
+            } catch (e) { addrInput.value = "地図上の位置で送信します"; }
+        }
+
+        window.toggleTime = () => {
+            const isPlan = document.getElementById("requestType").value === "plan";
+            document.getElementById("timeInput").style.display = isPlan ? "block" : "none";
+        };
+
+        window.sendRequest = async () => {
+            const center = map.getCenter();
+            const requestData = {
+                userId: userLineId || "president_direct",
+                name: "社長",
+                address: document.getElementById("address").value,
+                latitude: center.lat,
+                longitude: center.lng,
+                type: document.getElementById("requestType").value,
+                scheduledTime: document.getElementById("scheduledTime").value || "なし",
+                status: "waiting",
+                timestamp: new Date()
+            };
+
+            try {
+                await addDoc(collection(db, "requests"), requestData);
+                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
+                alert("リクエストを送信しました");
+            } catch (e) { alert("エラー: " + e.message); }
