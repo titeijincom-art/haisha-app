@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>タクシー配車（社長専用）</title>
+    <title>配車アプリ（ボス専用）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 40vh; width: 100%; background: #eee; position: relative; z-index: 1; }
+        #map { height: 35vh; width: 100%; background: #eee; position: relative; z-index: 1; }
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
@@ -22,6 +22,8 @@
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
             font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; margin-top: 5px;
         }
+        .btn-update { background: #007bff; }
+        
         .history-section { margin-top: 15px; }
         .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
         .request-item { 
@@ -29,7 +31,10 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000;
         }
         .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; }
-        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; }
+        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .btn-row { display: flex; gap: 10px; }
+        .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
+        .btn-del { color: #dc3545; border-color: #f8d7da; }
         .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; }
         .status-waiting { background: #fff3cd; color: #856404; }
         .status-heading { background: #cfe2ff; color: #084298; }
@@ -43,7 +48,7 @@
     <div class="container">
         <div class="form-card">
             <div class="input-group">
-                <label>配車場所</label>
+                <label id="form-label">配車場所</label>
                 <input type="text" id="address" value="読み込み中..." readonly>
             </div>
             
@@ -56,11 +61,12 @@
             </div>
 
             <div id="timeInputArea" class="input-group" style="display:none;">
-                <label>予約日時（5分単位で送信されます）</label>
+                <label>予約日時（5分単位）</label>
                 <input type="datetime-local" id="scheduledTime" step="300" onblur="roundTo5Min(this)">
             </div>
 
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+            <button id="cancelEditBtn" class="btn-small" style="display:none; width:100%; margin-top:10px;" onclick="resetForm()">編集をキャンセル</button>
         </div>
 
         <div class="history-section">
@@ -73,7 +79,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
@@ -88,32 +94,19 @@
         const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
         let map, centerMarker, userLineId = "";
+        let editId = null; // 修正中のドキュメントID
 
-        // ★ 5分単位に丸めるスクリプト
         window.roundTo5Min = (input) => {
             if (!input.value) return;
             let date = new Date(input.value);
-            let minutes = date.getMinutes();
-            // 5分単位で一番近い方に丸める
-            let roundedMinutes = Math.round(minutes / 5) * 5;
-            date.setMinutes(roundedMinutes);
+            date.setMinutes(Math.round(date.getMinutes() / 5) * 5);
             date.setSeconds(0);
-            
             const offset = date.getTimezoneOffset() * 60000;
             input.value = (new Date(date - offset)).toISOString().slice(0, 16);
         };
 
         document.getElementById('requestType').addEventListener('change', (e) => {
-            const area = document.getElementById("timeInputArea");
-            if (e.target.value === "plan") {
-                area.style.display = "block";
-                const now = new Date();
-                const input = document.getElementById("scheduledTime");
-                input.value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-                roundTo5Min(input);
-            } else {
-                area.style.display = "none";
-            }
+            document.getElementById("timeInputArea").style.display = e.target.value === "plan" ? "block" : "none";
         });
 
         function initMap() {
@@ -138,30 +131,72 @@
             } catch (e) { document.getElementById("address").value = "地図の位置で指定中"; }
         }
 
+        // リクエスト送信・更新
         window.sendRequest = async () => {
             const center = map.getCenter();
             const type = document.getElementById("requestType").value;
             const timeInput = document.getElementById("scheduledTime");
-            
-            // 送信前にも念のため丸める
             if (type === "plan") roundTo5Min(timeInput);
 
             const requestData = {
-                userId: userLineId || "president",
-                name: "社長",
                 address: document.getElementById("address").value,
                 latitude: center.lat,
                 longitude: center.lng,
                 type: type,
                 scheduledTime: timeInput.value || "なし",
-                status: "waiting",
                 timestamp: new Date()
             };
+
             try {
-                await addDoc(collection(db, "requests"), requestData);
-                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                alert("依頼を送信しました");
+                if (editId) {
+                    await updateDoc(doc(db, "requests", editId), requestData);
+                    alert("依頼内容を更新しました");
+                    resetForm();
+                } else {
+                    requestData.userId = userLineId || "president";
+                    requestData.name = "社長";
+                    requestData.status = "waiting";
+                    await addDoc(collection(db, "requests"), requestData);
+                    fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
+                    alert("依頼を送信しました");
+                }
             } catch (e) { alert("エラー: " + e.message); }
+        };
+
+        // 修正モードへ
+        window.startEdit = (id, addr, type, time, lat, lng) => {
+            editId = id;
+            document.getElementById("address").value = addr;
+            document.getElementById("requestType").value = type;
+            document.getElementById("timeInputArea").style.display = type === "plan" ? "block" : "none";
+            document.getElementById("scheduledTime").value = time !== "なし" ? time : "";
+            map.setView([lat, lng], 17);
+            centerMarker.setLatLng([lat, lng]);
+
+            const btn = document.getElementById("submitBtn");
+            btn.innerText = "内容を更新する";
+            btn.classList.add("btn-update");
+            document.getElementById("cancelEditBtn").style.display = "block";
+            document.getElementById("form-label").innerText = "【修正中】配車場所を再調整";
+            window.scrollTo(0, 0);
+        };
+
+        window.resetForm = () => {
+            editId = null;
+            document.getElementById("submitBtn").innerText = "リクエストを送信";
+            document.getElementById("submitBtn").classList.remove("btn-update");
+            document.getElementById("cancelEditBtn").style.display = "none";
+            document.getElementById("form-label").innerText = "配車場所";
+            document.getElementById("requestType").value = "now";
+            document.getElementById("timeInputArea").style.display = "none";
+        };
+
+        window.deleteRequest = async (id) => {
+            if (!confirm("この依頼を取り消しますか？")) return;
+            try {
+                await deleteDoc(doc(db, "requests", id));
+                alert("削除しました");
+            } catch (e) { alert("削除エラー: " + e.message); }
         };
 
         function renderHistory() {
@@ -169,15 +204,28 @@
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById("history-list");
                 list.innerHTML = "";
-                snapshot.forEach(doc => {
-                    const d = doc.data();
+                snapshot.forEach(docSnap => {
+                    const d = docSnap.data();
+                    const id = docSnap.id;
                     if (d.status === "completed") return;
+                    
                     const tag = d.status === "heading" ? "status-heading" : (d.status === "arrived" ? "status-arrived" : "status-waiting");
                     const txt = d.status === "heading" ? `向かっています` : (d.status === "arrived" ? "到着" : "待機中");
                     const timeDisp = d.type === "plan" ? d.scheduledTime.replace('T', ' ') : "今すぐ";
+
                     const item = document.createElement("div");
                     item.className = "request-item";
-                    item.innerHTML = `<div class="req-addr">📍 ${d.address}</div><div class="req-info"><span>${timeDisp}</span><span class="status-tag ${tag}">${txt}</span></div>`;
+                    item.innerHTML = `
+                        <div class="req-addr">📍 ${d.address}</div>
+                        <div class="req-info">
+                            <span>${timeDisp}</span>
+                            <span class="status-tag ${tag}">${txt}</span>
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn-small" onclick="startEdit('${id}', '${d.address}', '${d.type}', '${d.scheduledTime}', ${d.latitude}, ${d.longitude})">修正</button>
+                            <button class="btn-small btn-del" onclick="deleteRequest('${id}')">削除</button>
+                        </div>
+                    `;
                     list.appendChild(item);
                 });
             });
