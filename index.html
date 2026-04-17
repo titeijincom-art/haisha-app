@@ -102,4 +102,89 @@
             const defLat = 35.6812, defLon = 139.7671;
             map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            centerMarker = L.marker([defLat, defLon
+            centerMarker = L.marker([defLat, defLon]).addTo(map);
+
+            map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
+            map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
+
+            // 現在地を追って地図を動かす
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const { latitude, longitude } = pos.coords;
+                map.setView([latitude, longitude], 16);
+                centerMarker.setLatLng([latitude, longitude]);
+                updateAddress(latitude, longitude);
+            }, (err) => {
+                updateAddress(defLat, defLon);
+                console.warn("Geolocation Error: " + err.message);
+            }, { enableHighAccuracy: true });
+        }
+
+        async function updateAddress(lat, lng) {
+            const input = document.getElementById("address");
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
+                const data = await res.json();
+                input.value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
+            } catch (e) { input.value = "地図の位置で依頼"; }
+        }
+
+        window.toggleTime = () => {
+            const isPlan = document.getElementById("requestType").value === "plan";
+            document.getElementById("timeInput").style.display = isPlan ? "block" : "none";
+        };
+
+        window.sendRequest = async () => {
+            const center = map.getCenter();
+            const requestData = {
+                userId: userLineId || "president_direct",
+                name: "社長",
+                address: document.getElementById("address").value,
+                latitude: center.lat,
+                longitude: center.lng,
+                type: document.getElementById("requestType").value,
+                scheduledTime: document.getElementById("scheduledTime").value || "なし",
+                status: "waiting",
+                timestamp: new Date()
+            };
+
+            document.getElementById("submitBtn").disabled = true;
+
+            try {
+                await addDoc(collection(db, "requests"), requestData);
+                fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
+                alert("依頼しました");
+            } catch (e) {
+                alert("エラー: " + e.message);
+                document.getElementById("submitBtn").disabled = false;
+            }
+        };
+
+        function renderHistory() {
+            if (!userLineId) return;
+            const q = query(collection(db, "requests"), where("userId", "==", userLineId), orderBy("timestamp", "desc"), limit(3));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById("history-list");
+                list.innerHTML = "";
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    if (d.status === "completed") return;
+                    const tag = d.status === "heading" ? "status-heading" : (d.status === "arrived" ? "status-arrived" : "status-waiting");
+                    const txt = d.status === "heading" ? `向かっています (${d.eta||'?'}分)` : (d.status === "arrived" ? "到着" : "待機中");
+                    const item = document.createElement("div");
+                    item.className = "request-item";
+                    item.innerHTML = `<div class="req-addr">📍 ${d.address}</div><div class="req-info"><span>${d.type==='plan'?'予約':'今すぐ'}</span><span class="status-tag ${tag}">${txt}</span></div>`;
+                    list.appendChild(item);
+                });
+            });
+        }
+
+        // 実行開始
+        initMap();
+        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
+            if (liff.isLoggedIn()) {
+                liff.getProfile().then(p => { userLineId = p.userId; renderHistory(); });
+            } else { liff.login(); }
+        });
+    </script>
+</body>
+</html>
