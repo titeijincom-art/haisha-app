@@ -26,6 +26,14 @@
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
             font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer;
         }
+        /* 電話ボタン用のスタイル */
+        .btn-phone {
+            width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px;
+            font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer;
+            margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-phone:active { background: #f0fdf4; }
+
         .btn-update { background: #007bff; }
         
         .history-section { margin-top: 15px; }
@@ -57,7 +65,7 @@
             </div>
 
             <div class="input-group">
-                <label id="form-label">住所（自動取得）</label>
+                <label id="form-label">住所</label>
                 <input type="text" id="address" value="読み込み中..." readonly>
             </div>
             
@@ -76,6 +84,11 @@
             </div>
 
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+            
+            <button class="btn-phone" onclick="makePhoneCall()">
+                <span>📞</span> 運転手に電話をかける
+            </button>
+
             <button id="cancelEditBtn" class="btn-small" style="display:none; width:100%; margin-top:10px;" onclick="resetForm()">編集をキャンセル</button>
         </div>
 
@@ -105,7 +118,13 @@
         let map, centerMarker, userLineId = "", userCurrentPos = null;
         let editId = null;
 
-        // 5分単位丸め
+        // 電話発信関数
+        window.makePhoneCall = () => {
+            if (confirm("090-1376-7364 へ電話をかけますか？")) {
+                window.location.href = "tel:09013767364";
+            }
+        };
+
         window.roundTo5Min = (input) => {
             if (!input.value) return;
             let date = new Date(input.value);
@@ -115,13 +134,12 @@
             input.value = (new Date(date - offset)).toISOString().slice(0, 16);
         };
 
-        // 場所指定タイプの切り替え
         window.handleLocationTypeChange = () => {
             const type = document.getElementById("locationType").value;
             if (type === "current" && userCurrentPos) {
                 map.setView([userCurrentPos.lat, userCurrentPos.lng], 17);
                 centerMarker.setLatLng([userCurrentPos.lat, userCurrentPos.lng]);
-                map.dragging.disable(); // 現在地固定時は地図を動かせなくする
+                map.dragging.disable();
                 updateAddress(userCurrentPos.lat, userCurrentPos.lng);
             } else {
                 map.dragging.enable();
@@ -151,7 +169,7 @@
 
             navigator.geolocation.getCurrentPosition((pos) => {
                 userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                handleLocationTypeChange(); // 初期状態で現在地を表示
+                handleLocationTypeChange();
             }, null, { enableHighAccuracy: true });
         }
 
