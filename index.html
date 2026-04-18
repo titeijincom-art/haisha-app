@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>配車アプリ（ボス専用）</title>
+    <title>タクシー配車（社長専用）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -18,9 +18,13 @@
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
         input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; -webkit-appearance: none; }
+        
+        .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
+        .flex-item { flex: 1; }
+
         .btn-call { 
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
-            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; margin-top: 5px;
+            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer;
         }
         .btn-update { background: #007bff; }
         
@@ -36,9 +40,6 @@
         .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
         .btn-del { color: #dc3545; border-color: #f8d7da; }
         .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; }
-        .status-waiting { background: #fff3cd; color: #856404; }
-        .status-heading { background: #cfe2ff; color: #084298; }
-        .status-arrived { background: #d1e7dd; color: #0f5132; }
     </style>
 </head>
 <body>
@@ -48,21 +49,30 @@
     <div class="container">
         <div class="form-card">
             <div class="input-group">
-                <label id="form-label">配車場所</label>
-                <input type="text" id="address" value="読み込み中..." readonly>
-            </div>
-            
-            <div class="input-group">
-                <label>利用タイプ</label>
-                <select id="requestType">
-                    <option value="now">今すぐ呼ぶ</option>
-                    <option value="plan">予約する</option>
+                <label>お迎え場所の指定</label>
+                <select id="locationType" onchange="handleLocationTypeChange()">
+                    <option value="current">現在地に呼び出す</option>
+                    <option value="custom">地図で場所を指定する</option>
                 </select>
             </div>
 
-            <div id="timeInputArea" class="input-group" style="display:none;">
-                <label>予約日時（5分単位）</label>
-                <input type="datetime-local" id="scheduledTime" step="300" onblur="roundTo5Min(this)">
+            <div class="input-group">
+                <label id="form-label">住所（自動取得）</label>
+                <input type="text" id="address" value="読み込み中..." readonly>
+            </div>
+            
+            <div class="flex-box">
+                <div class="flex-item">
+                    <label>利用タイプ</label>
+                    <select id="requestType">
+                        <option value="now">今すぐ</option>
+                        <option value="plan">予約</option>
+                    </select>
+                </div>
+                <div id="timeInputArea" class="flex-item" style="display:none;">
+                    <label>予約日時</label>
+                    <input type="datetime-local" id="scheduledTime" step="300" onblur="roundTo5Min(this)">
+                </div>
             </div>
 
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
@@ -91,11 +101,11 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
-        let map, centerMarker, userLineId = "";
-        let editId = null; // 修正中のドキュメントID
+        let map, centerMarker, userLineId = "", userCurrentPos = null;
+        let editId = null;
 
+        // 5分単位丸め
         window.roundTo5Min = (input) => {
             if (!input.value) return;
             let date = new Date(input.value);
@@ -103,6 +113,19 @@
             date.setSeconds(0);
             const offset = date.getTimezoneOffset() * 60000;
             input.value = (new Date(date - offset)).toISOString().slice(0, 16);
+        };
+
+        // 場所指定タイプの切り替え
+        window.handleLocationTypeChange = () => {
+            const type = document.getElementById("locationType").value;
+            if (type === "current" && userCurrentPos) {
+                map.setView([userCurrentPos.lat, userCurrentPos.lng], 17);
+                centerMarker.setLatLng([userCurrentPos.lat, userCurrentPos.lng]);
+                map.dragging.disable(); // 現在地固定時は地図を動かせなくする
+                updateAddress(userCurrentPos.lat, userCurrentPos.lng);
+            } else {
+                map.dragging.enable();
+            }
         };
 
         document.getElementById('requestType').addEventListener('change', (e) => {
@@ -114,12 +137,21 @@
             map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             centerMarker = L.marker([defLat, defLon]).addTo(map);
-            map.on('move', () => { centerMarker.setLatLng(map.getCenter()); });
-            map.on('moveend', () => { updateAddress(map.getCenter().lat, map.getCenter().lng); });
+
+            map.on('move', () => { 
+                if(document.getElementById("locationType").value === "custom" || editId) {
+                    centerMarker.setLatLng(map.getCenter()); 
+                }
+            });
+            map.on('moveend', () => { 
+                if(document.getElementById("locationType").value === "custom" || editId) {
+                    updateAddress(map.getCenter().lat, map.getCenter().lng); 
+                }
+            });
+
             navigator.geolocation.getCurrentPosition((pos) => {
-                map.setView([pos.coords.latitude, pos.coords.longitude], 16);
-                centerMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
-                updateAddress(pos.coords.latitude, pos.coords.longitude);
+                userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                handleLocationTypeChange(); // 初期状態で現在地を表示
             }, null, { enableHighAccuracy: true });
         }
 
@@ -128,12 +160,11 @@
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
                 const data = await res.json();
                 document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById("address").value = "地図の位置で指定中"; }
+            } catch (e) { document.getElementById("address").value = "地図の位置で指定"; }
         }
 
-        // リクエスト送信・更新
         window.sendRequest = async () => {
-            const center = map.getCenter();
+            const center = centerMarker.getLatLng();
             const type = document.getElementById("requestType").value;
             const timeInput = document.getElementById("scheduledTime");
             if (type === "plan") roundTo5Min(timeInput);
@@ -150,53 +181,42 @@
             try {
                 if (editId) {
                     await updateDoc(doc(db, "requests", editId), requestData);
-                    alert("依頼内容を更新しました");
+                    alert("更新しました");
                     resetForm();
                 } else {
                     requestData.userId = userLineId || "president";
                     requestData.name = "社長";
                     requestData.status = "waiting";
                     await addDoc(collection(db, "requests"), requestData);
-                    fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                    alert("依頼を送信しました");
+                    alert("送信しました");
                 }
             } catch (e) { alert("エラー: " + e.message); }
         };
 
-        // 修正モードへ
         window.startEdit = (id, addr, type, time, lat, lng) => {
             editId = id;
+            document.getElementById("locationType").value = "custom";
+            map.dragging.enable();
             document.getElementById("address").value = addr;
             document.getElementById("requestType").value = type;
             document.getElementById("timeInputArea").style.display = type === "plan" ? "block" : "none";
             document.getElementById("scheduledTime").value = time !== "なし" ? time : "";
             map.setView([lat, lng], 17);
             centerMarker.setLatLng([lat, lng]);
-
-            const btn = document.getElementById("submitBtn");
-            btn.innerText = "内容を更新する";
-            btn.classList.add("btn-update");
+            document.getElementById("submitBtn").innerText = "内容を更新する";
             document.getElementById("cancelEditBtn").style.display = "block";
-            document.getElementById("form-label").innerText = "【修正中】配車場所を再調整";
-            window.scrollTo(0, 0);
         };
 
         window.resetForm = () => {
             editId = null;
             document.getElementById("submitBtn").innerText = "リクエストを送信";
-            document.getElementById("submitBtn").classList.remove("btn-update");
             document.getElementById("cancelEditBtn").style.display = "none";
-            document.getElementById("form-label").innerText = "配車場所";
-            document.getElementById("requestType").value = "now";
-            document.getElementById("timeInputArea").style.display = "none";
+            document.getElementById("locationType").value = "current";
+            handleLocationTypeChange();
         };
 
         window.deleteRequest = async (id) => {
-            if (!confirm("この依頼を取り消しますか？")) return;
-            try {
-                await deleteDoc(doc(db, "requests", id));
-                alert("削除しました");
-            } catch (e) { alert("削除エラー: " + e.message); }
+            if (confirm("削除しますか？")) await deleteDoc(doc(db, "requests", id));
         };
 
         function renderHistory() {
@@ -208,18 +228,13 @@
                     const d = docSnap.data();
                     const id = docSnap.id;
                     if (d.status === "completed") return;
-                    
-                    const tag = d.status === "heading" ? "status-heading" : (d.status === "arrived" ? "status-arrived" : "status-waiting");
-                    const txt = d.status === "heading" ? `向かっています` : (d.status === "arrived" ? "到着" : "待機中");
-                    const timeDisp = d.type === "plan" ? d.scheduledTime.replace('T', ' ') : "今すぐ";
-
                     const item = document.createElement("div");
                     item.className = "request-item";
                     item.innerHTML = `
                         <div class="req-addr">📍 ${d.address}</div>
                         <div class="req-info">
-                            <span>${timeDisp}</span>
-                            <span class="status-tag ${tag}">${txt}</span>
+                            <span>${d.type==='plan'?d.scheduledTime.replace('T',' '):'今すぐ'}</span>
+                            <span class="status-tag">${d.status==='heading'?'向かっています':(d.status==='arrived'?'到着':'待機中')}</span>
                         </div>
                         <div class="btn-row">
                             <button class="btn-small" onclick="startEdit('${id}', '${d.address}', '${d.type}', '${d.scheduledTime}', ${d.latitude}, ${d.longitude})">修正</button>
@@ -235,7 +250,7 @@
         liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
             if (liff.isLoggedIn()) { liff.getProfile().then(p => { userLineId = p.userId; renderHistory(); }); }
             else { renderHistory(); liff.login(); }
-        }).catch(() => renderHistory());
+        });
     </script>
 </body>
 </html>
