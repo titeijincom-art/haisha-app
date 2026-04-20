@@ -32,6 +32,8 @@
         .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
         .btn-del { color: #dc3545; border-color: #f8d7da; }
         .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; background: #f8f9fa; }
+        /* エラー表示用 */
+        #error-log { color: red; font-size: 0.7rem; padding: 10px; display: none; background: #ffebee; border-radius: 10px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -39,6 +41,8 @@
     <div id="map"></div>
 
     <div class="container">
+        <div id="error-log"></div>
+
         <div class="form-card">
             <div class="input-group">
                 <label>お迎え場所の指定</label>
@@ -73,7 +77,7 @@
         </div>
 
         <div class="history-section">
-            <div class="history-title">現在の状況（最新）</div>
+            <div class="history-title">現在の状況</div>
             <div id="history-list">
                 <p style="text-align:center; padding:20px; color:#999; font-size:0.8rem;">データを読み込んでいます...</p>
             </div>
@@ -84,7 +88,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, getDocs, query, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
@@ -94,10 +98,23 @@
             messagingSenderId: "375707924539", 
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        
+        let db;
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+        } catch (e) {
+            showError("Firebase初期化失敗: " + e.message);
+        }
 
         let map, centerMarker, userLineId = "", userCurrentPos = null, editId = null;
+
+        function showError(msg) {
+            const log = document.getElementById("error-log");
+            log.style.display = "block";
+            log.innerText = msg;
+            console.error(msg);
+        }
 
         window.makePhoneCall = () => {
             if (confirm("090-1376-7364 へ電話をかけますか？")) window.location.href = "tel:09013767364";
@@ -129,17 +146,23 @@
         });
 
         function initMap() {
-            map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            centerMarker = L.marker([35.6812, 139.7671]).addTo(map);
+            try {
+                map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 16);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                centerMarker = L.marker([35.6812, 139.7671]).addTo(map);
 
-            map.on('move', () => { if(document.getElementById("locationType").value === "custom" || editId) centerMarker.setLatLng(map.getCenter()); });
-            map.on('moveend', () => { if(document.getElementById("locationType").value === "custom" || editId) updateAddress(map.getCenter().lat, map.getCenter().lng); });
+                map.on('move', () => { if(document.getElementById("locationType").value === "custom" || editId) centerMarker.setLatLng(map.getCenter()); });
+                map.on('moveend', () => { if(document.getElementById("locationType").value === "custom" || editId) updateAddress(map.getCenter().lat, map.getCenter().lng); });
 
-            navigator.geolocation.getCurrentPosition((pos) => {
-                userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                handleLocationTypeChange();
-            }, null, { enableHighAccuracy: true });
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    handleLocationTypeChange();
+                }, (err) => {
+                    document.getElementById("address").value = "位置情報をONにしてください";
+                }, { enableHighAccuracy: true });
+            } catch (e) {
+                showError("地図の初期化失敗: " + e.message);
+            }
         }
 
         async function updateAddress(lat, lng) {
@@ -151,6 +174,7 @@
         }
 
         window.sendRequest = async () => {
+            if (!db) return showError("データベースに接続されていません");
             const pos = centerMarker.getLatLng();
             const type = document.getElementById("requestType").value;
             const time = document.getElementById("scheduledTime").value;
@@ -161,7 +185,10 @@
                 longitude: pos.lng,
                 type: type,
                 scheduledTime: type === "plan" ? (time || "なし") : "なし",
-                timestamp: new Date()
+                timestamp: new Date(),
+                status: "waiting",
+                userId: userLineId || "guest",
+                name: "社長"
             };
 
             try {
@@ -170,31 +197,5 @@
                     alert("更新しました");
                     resetForm();
                 } else {
-                    requestData.userId = userLineId || "president";
-                    requestData.name = "社長";
-                    requestData.status = "waiting";
                     await addDoc(collection(db, "requests"), requestData);
                     alert("送信しました");
-                }
-            } catch (e) { alert("送信エラー: " + e.message); }
-        };
-
-        window.startEdit = (id, addr, type, time, lat, lng) => {
-            editId = id;
-            document.getElementById("locationType").value = "custom";
-            map.dragging.enable();
-            document.getElementById("address").value = addr;
-            document.getElementById("requestType").value = type;
-            document.getElementById("timeInputArea").style.display = type === "plan" ? "block" : "none";
-            document.getElementById("scheduledTime").value = (time && time !== "なし") ? time : "";
-            map.setView([lat, lng], 17);
-            centerMarker.setLatLng([lat, lng]);
-            document.getElementById("submitBtn").innerText = "内容を更新する";
-            document.getElementById("submitBtn").classList.add("btn-update");
-            document.getElementById("cancelEditBtn").style.display = "block";
-            window.scrollTo(0, 0);
-        };
-
-        window.resetForm = () => {
-            editId = null;
-            document.getElementById
