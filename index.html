@@ -41,6 +41,7 @@
             margin-bottom: 8px; border-left: 5px solid #000; 
         }
         .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .use-tag { font-size: 0.7rem; color: #fff; background: #007bff; padding: 2px 6px; border-radius: 4px; margin-right: 5px; }
         .btn-row { display: flex; gap: 10px; margin-top: 10px; }
         .btn-small { 
             flex: 1; padding: 8px; border: 1px solid #ddd; 
@@ -55,15 +56,25 @@
     <div class="container">
         <div class="form-card">
             <div class="input-group">
-                <label>お迎え場所</label>
+                <label>場所の指定</label>
                 <select id="locationType" onchange="handleLocationTypeChange()">
                     <option value="current">現在地に呼び出す</option>
                     <option value="custom">地図で場所を指定する</option>
                 </select>
             </div>
+            
+            <div class="input-group">
+                <label>この場所の用途</label>
+                <select id="useCase">
+                    <option value="pickup">ここに配車する（お迎え）</option>
+                    <option value="dropoff">ここまで送迎する（目的地）</option>
+                </select>
+            </div>
+
             <div class="input-group">
                 <input type="text" id="address" value="住所を取得中..." readonly>
             </div>
+            
             <div class="flex-box">
                 <div class="flex-item">
                     <label>利用タイプ</label>
@@ -142,11 +153,13 @@
         window.sendRequest = async function() {
             const pos = marker.getLatLng();
             const type = document.getElementById('requestType').value;
+            const useCase = document.getElementById('useCase').value;
             const data = {
                 address: document.getElementById('address').value,
                 latitude: pos.lat,
                 longitude: pos.lng,
                 type: type,
+                useCase: useCase, // 用途を保存
                 scheduledTime: type === 'plan' ? document.getElementById('scheduledTime').value : "なし",
                 status: "waiting",
                 timestamp: firebase.firestore.FieldValue.serverTimestamp(),
@@ -174,10 +187,11 @@
                 
                 items.slice(0, 5).forEach(item => {
                     const timeTxt = item.type === 'plan' ? (item.scheduledTime || '').replace('T',' ') : '⚡ 今すぐ';
+                    const useTxt = item.useCase === 'dropoff' ? '目的地' : 'お迎え';
                     const div = document.createElement('div');
                     div.className = 'history-item';
                     div.innerHTML = `
-                        <div style="font-weight:bold; font-size:0.85rem;">📍 ${item.address}</div>
+                        <div style="font-weight:bold; font-size:0.85rem;"><span class="use-tag">${useTxt}</span>📍 ${item.address}</div>
                         <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
                             <span>${timeTxt}</span>
                             <span class="status-tag">${item.status==='heading'?'向かっています':(item.status==='arrived'?'到着':'待機中')}</span>
