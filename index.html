@@ -12,17 +12,41 @@
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
         #map { height: 35vh; width: 100%; background: #eee; }
-        .container { padding: 10px; max-width: 500px; margin: auto; }
-        .form-card { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 -5px 15px rgba(0,0,0,0.1); margin-top: -25px; position: relative; z-index: 1000; }
+        .container { padding: 10px; max-width: 500px; margin: auto; box-sizing: border-box; }
+        .form-card { 
+            background: white; padding: 20px; border-radius: 20px; 
+            box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
+            margin-top: -25px; position: relative; z-index: 1000; 
+        }
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
+        input, select { 
+            width: 100%; padding: 12px; border: 1px solid #eee; 
+            border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; 
+        }
         .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
         .flex-item { flex: 1; }
-        .btn-call { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; }
-        .btn-phone { width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
-        .history-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; border-left: 5px solid #000; }
+        .btn-call { 
+            width: 100%; padding: 16px; border: none; border-radius: 12px; 
+            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
+        }
+        .btn-update { background: #007bff; }
+        .btn-phone { 
+            width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; 
+            font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; 
+            cursor: pointer; margin-top: 10px; display: flex; align-items: center; 
+            justify-content: center; gap: 8px; text-decoration: none; box-sizing: border-box; 
+        }
+        .history-item { 
+            background: white; border-radius: 12px; padding: 12px; 
+            margin-bottom: 8px; border-left: 5px solid #000; 
+        }
         .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .btn-row { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-small { 
+            flex: 1; padding: 8px; border: 1px solid #ddd; 
+            border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -44,7 +68,7 @@
             <div class="flex-box">
                 <div class="flex-item">
                     <label>利用タイプ</label>
-                    <select id="requestType" onchange="document.getElementById('timeInputArea').style.display = (this.value=='plan'?'block':'none')">
+                    <select id="requestType" onchange="toggleTimeInput()">
                         <option value="now">今すぐ</option>
                         <option value="plan">予約</option>
                     </select>
@@ -54,7 +78,8 @@
                     <input type="datetime-local" id="scheduledTime" step="300">
                 </div>
             </div>
-            <button class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+            <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+            <button id="cancelBtn" class="btn-small" style="display:none; width:100%; margin-top:10px;" onclick="resetForm()">編集をキャンセル</button>
             <a href="tel:09013767364" class="btn-phone">📞 運転手に電話をかける</a>
         </div>
 
@@ -62,7 +87,6 @@
     </div>
 
     <script>
-        // --- 設定 ---
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
             authDomain: "loser-12855.firebaseapp.com", 
@@ -72,26 +96,24 @@
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
 
-        // --- 初期化 ---
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         let map, marker, userPos = { lat: 35.6812, lng: 139.7671 };
         let userLineId = "guest";
+        let editId = null;
 
-        // 地図を即座に表示
         function initMap() {
             map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             marker = L.marker([userPos.lat, userPos.lng]).addTo(map);
 
             map.on('move', function() {
-                if(document.getElementById('locationType').value === 'custom') marker.setLatLng(map.getCenter());
+                if(document.getElementById('locationType').value === 'custom' || editId) marker.setLatLng(map.getCenter());
             });
             map.on('moveend', function() {
-                if(document.getElementById('locationType').value === 'custom') fetchAddr(map.getCenter());
+                if(document.getElementById('locationType').value === 'custom' || editId) fetchAddr(map.getCenter());
             });
 
-            // 現在地取得
             navigator.geolocation.getCurrentPosition(function(pos) {
                 userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 map.setView([userPos.lat, userPos.lng], 16);
@@ -109,6 +131,7 @@
         }
 
         window.handleLocationTypeChange = function() {
+            if (editId) return; // 修正中は切り替えを無視
             const isCustom = document.getElementById('locationType').value === 'custom';
             if (!isCustom) {
                 map.setView([userPos.lat, userPos.lng], 16);
@@ -120,67 +143,47 @@
             }
         };
 
+        window.toggleTimeInput = function() {
+            document.getElementById('timeInputArea').style.display = document.getElementById('requestType').value === 'plan' ? 'block' : 'none';
+        };
+
         window.sendRequest = async function() {
             const pos = marker.getLatLng();
             const type = document.getElementById('requestType').value;
-            const data = {
+            const payload = {
                 address: document.getElementById('address').value,
                 latitude: pos.lat,
                 longitude: pos.lng,
                 type: type,
                 scheduledTime: type === 'plan' ? document.getElementById('scheduledTime').value : "なし",
-                status: "waiting",
                 timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                 userId: userLineId,
                 name: "社長"
             };
+
             try {
-                await db.collection("requests").add(data);
-                alert("送信しました");
+                if (editId) {
+                    await db.collection("requests").doc(editId).update(payload);
+                    alert("更新しました");
+                    resetForm();
+                } else {
+                    payload.status = "waiting";
+                    await db.collection("requests").add(payload);
+                    alert("送信しました");
+                }
             } catch (e) { alert("エラー: " + e.message); }
         };
 
-        // 履歴表示
-        function startHistory() {
-            db.collection("requests").onSnapshot(function(snapshot) {
-                const list = document.getElementById('history-list');
-                let items = [];
-                snapshot.forEach(doc => {
-                    const d = doc.data();
-                    if(d.status !== "completed") items.push({ id: doc.id, ...d });
-                });
-                items.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-                
-                list.innerHTML = '<h4 style="font-size:0.85rem; color:#666;">現在の状況</h4>';
-                if(items.length === 0) list.innerHTML += '<p style="font-size:0.8rem; color:#999;">依頼はありません</p>';
-                
-                items.slice(0, 5).forEach(item => {
-                    const timeTxt = item.type === 'plan' ? (item.scheduledTime || '').replace('T',' ') : '今すぐ';
-                    const div = document.createElement('div');
-                    div.className = 'history-item';
-                    div.innerHTML = `
-                        <div style="font-weight:bold; font-size:0.85rem;">📍 ${item.address}</div>
-                        <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
-                            <span>${timeTxt}</span>
-                            <span class="status-tag">${item.status==='heading'?'向かっています':(item.status==='arrived'?'到着':'待機中')}</span>
-                        </div>
-                        <button style="margin-top:10px; width:100%; padding:5px; font-size:0.7rem; border:1px solid #ddd; background:#fff; border-radius:5px;" onclick="deleteReq('${item.id}')">削除</button>
-                    `;
-                    list.appendChild(div);
-                });
-            });
-        }
-
-        window.deleteReq = function(id) {
-            if(confirm("削除しますか？")) db.collection("requests").doc(id).delete();
-        };
-
-        // 実行開始
-        initMap();
-        startHistory();
-        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
-            if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; });
-        });
-    </script>
-</body>
-</html>
+        window.startEdit = function(id, addr, type, time, lat, lng) {
+            editId = id;
+            document.getElementById('locationType').value = 'custom';
+            map.dragging.enable();
+            document.getElementById('address').value = addr;
+            document.getElementById('requestType').value = type;
+            toggleTimeInput();
+            if (type === 'plan') document.getElementById('scheduledTime').value = time;
+            
+            map.setView([lat, lng], 17);
+            marker.setLatLng([lat, lng]);
+            
+            const btn = document.getElementById('
