@@ -6,9 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 35vh; width: 100%; background: #eee; position: relative; z-index: 1; }
+        #map { height: 35vh; width: 100%; background: #ddd; position: relative; z-index: 1; }
         .container { padding: 10px; max-width: 500px; margin: auto; }
         .form-card { 
             background: white; padding: 20px; border-radius: 20px; 
@@ -21,74 +22,62 @@
         .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
         .flex-item { flex: 1; }
         .btn-call { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; }
-        .btn-update { background: #007bff; }
         .btn-phone { width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .history-section { margin-top: 15px; }
-        .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
-        .request-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000; }
-        .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; }
-        .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .btn-row { display: flex; gap: 10px; }
-        .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
-        .btn-del { color: #dc3545; border-color: #f8d7da; }
-        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; background: #f8f9fa; }
-        /* エラー表示用 */
-        #error-log { color: red; font-size: 0.7rem; padding: 10px; display: none; background: #ffebee; border-radius: 10px; margin-top: 10px; }
+        .history-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; border-left: 5px solid #000; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .req-info { display: flex; justify-content: space-between; font-size: 0.75rem; color: #777; margin-top: 5px; }
+        .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
+        .btn-row { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; }
+        #debug-log { font-size: 10px; color: #666; padding: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="map"></div>
+    <div id="map">地図を読み込んでいます...</div>
 
     <div class="container">
-        <div id="error-log"></div>
+        <div id="debug-log">Status: Initializing...</div>
 
         <div class="form-card">
             <div class="input-group">
-                <label>お迎え場所の指定</label>
+                <label>場所の指定</label>
                 <select id="locationType" onchange="handleLocationTypeChange()">
                     <option value="current">現在地に呼び出す</option>
                     <option value="custom">地図で場所を指定する</option>
                 </select>
             </div>
-
             <div class="input-group">
-                <label id="form-label">住所</label>
-                <input type="text" id="address" value="読み込み中..." readonly>
+                <label>お迎え住所</label>
+                <input type="text" id="address" value="取得中..." readonly>
             </div>
-            
             <div class="flex-box">
                 <div class="flex-item">
                     <label>利用タイプ</label>
-                    <select id="requestType">
+                    <select id="requestType" onchange="toggleTimeInput()">
                         <option value="now">今すぐ</option>
                         <option value="plan">予約</option>
                     </select>
                 </div>
                 <div id="timeInputArea" class="flex-item" style="display:none;">
                     <label>予約日時</label>
-                    <input type="datetime-local" id="scheduledTime" step="300" onblur="roundTo5Min(this)">
+                    <input type="datetime-local" id="scheduledTime" step="300">
                 </div>
             </div>
-
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
-            <button class="btn-phone" onclick="makePhoneCall()"><span>📞</span> 運転手に電話をかける</button>
-            <button id="cancelEditBtn" class="btn-small" style="display:none; width:100%; margin-top:10px;" onclick="resetForm()">編集をキャンセル</button>
+            <button class="btn-phone" onclick="window.location.href='tel:09013767364'">📞 運転手に電話をかける</button>
         </div>
 
-        <div class="history-section">
-            <div class="history-title">現在の状況</div>
+        <div style="margin-top:20px;">
+            <h4 style="font-size:0.85rem; color:#666; margin-bottom:10px;">現在の状況</h4>
             <div id="history-list">
-                <p style="text-align:center; padding:20px; color:#999; font-size:0.8rem;">データを読み込んでいます...</p>
+                <p style="text-align:center; color:#999; font-size:0.8rem;">読み込み中...</p>
             </div>
         </div>
     </div>
 
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, getDocs, query, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
@@ -98,104 +87,131 @@
             messagingSenderId: "375707924539", 
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
-        
-        let db;
-        try {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-        } catch (e) {
-            showError("Firebase初期化失敗: " + e.message);
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        let map, marker, userPos = { lat: 35.6812, lng: 139.7671 }; // デフォルト東京駅
+        let userLineId = "guest";
+
+        function log(msg) { document.getElementById('debug-log').innerText = "Status: " + msg; }
+
+        // 1. 地図の初期化（最優先）
+        function initMap() {
+            log("Map loading...");
+            map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            marker = L.marker([userPos.lat, userPos.lng]).addTo(map);
+
+            map.on('move', () => {
+                if(document.getElementById('locationType').value === 'custom') marker.setLatLng(map.getCenter());
+            });
+            map.on('moveend', () => {
+                if(document.getElementById('locationType').value === 'custom') fetchAddr(map.getCenter());
+            });
+
+            // 2. 位置情報の取得（5秒でタイムアウト）
+            const geoTimeout = setTimeout(() => {
+                log("GPS Timeout - Using default location");
+                fetchAddr(userPos);
+            }, 5000);
+
+            navigator.geolocation.getCurrentPosition((pos) => {
+                clearTimeout(geoTimeout);
+                userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                map.setView([userPos.lat, userPos.lng], 16);
+                marker.setLatLng([userPos.lat, userPos.lng]);
+                fetchAddr(userPos);
+                log("GPS Success");
+            }, () => {
+                log("GPS Denied - Using default");
+                fetchAddr(userPos);
+            });
         }
 
-        let map, centerMarker, userLineId = "", userCurrentPos = null, editId = null;
-
-        function showError(msg) {
-            const log = document.getElementById("error-log");
-            log.style.display = "block";
-            log.innerText = msg;
-            console.error(msg);
+        async function fetchAddr(pos) {
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`, { headers: { 'Accept-Language': 'ja' } });
+                const data = await res.json();
+                document.getElementById('address').value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
+            } catch (e) { document.getElementById('address').value = "地点指定中"; }
         }
-
-        window.makePhoneCall = () => {
-            if (confirm("090-1376-7364 へ電話をかけますか？")) window.location.href = "tel:09013767364";
-        };
-
-        window.roundTo5Min = (input) => {
-            if (!input.value) return;
-            let date = new Date(input.value);
-            date.setMinutes(Math.round(date.getMinutes() / 5) * 5);
-            date.setSeconds(0);
-            const offset = date.getTimezoneOffset() * 60000;
-            input.value = (new Date(date - offset)).toISOString().slice(0, 16);
-        };
 
         window.handleLocationTypeChange = () => {
-            const type = document.getElementById("locationType").value;
-            if (type === "current" && userCurrentPos) {
-                map.setView([userCurrentPos.lat, userCurrentPos.lng], 17);
-                centerMarker.setLatLng([userCurrentPos.lat, userCurrentPos.lng]);
+            const isCustom = document.getElementById('locationType').value === 'custom';
+            if (!isCustom) {
+                map.setView([userPos.lat, userPos.lng], 16);
+                marker.setLatLng([userPos.lat, userPos.lng]);
                 map.dragging.disable();
-                updateAddress(userCurrentPos.lat, userCurrentPos.lng);
+                fetchAddr(userPos);
             } else {
                 map.dragging.enable();
             }
         };
 
-        document.getElementById('requestType').addEventListener('change', (e) => {
-            document.getElementById("timeInputArea").style.display = e.target.value === "plan" ? "block" : "none";
-        });
-
-        function initMap() {
-            try {
-                map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 16);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                centerMarker = L.marker([35.6812, 139.7671]).addTo(map);
-
-                map.on('move', () => { if(document.getElementById("locationType").value === "custom" || editId) centerMarker.setLatLng(map.getCenter()); });
-                map.on('moveend', () => { if(document.getElementById("locationType").value === "custom" || editId) updateAddress(map.getCenter().lat, map.getCenter().lng); });
-
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                    handleLocationTypeChange();
-                }, (err) => {
-                    document.getElementById("address").value = "位置情報をONにしてください";
-                }, { enableHighAccuracy: true });
-            } catch (e) {
-                showError("地図の初期化失敗: " + e.message);
-            }
-        }
-
-        async function updateAddress(lat, lng) {
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
-                const data = await res.json();
-                document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById("address").value = "地点指定中"; }
-        }
+        window.toggleTimeInput = () => {
+            document.getElementById('timeInputArea').style.display = document.getElementById('requestType').value === 'plan' ? 'block' : 'none';
+        };
 
         window.sendRequest = async () => {
-            if (!db) return showError("データベースに接続されていません");
-            const pos = centerMarker.getLatLng();
-            const type = document.getElementById("requestType").value;
-            const time = document.getElementById("scheduledTime").value;
-
-            const requestData = {
-                address: document.getElementById("address").value,
+            const pos = marker.getLatLng();
+            const type = document.getElementById('requestType').value;
+            const data = {
+                address: document.getElementById('address').value,
                 latitude: pos.lat,
                 longitude: pos.lng,
                 type: type,
-                scheduledTime: type === "plan" ? (time || "なし") : "なし",
-                timestamp: new Date(),
+                scheduledTime: type === 'plan' ? document.getElementById('scheduledTime').value : "なし",
                 status: "waiting",
-                userId: userLineId || "guest",
+                timestamp: new Date(),
+                userId: userLineId,
                 name: "社長"
             };
-
             try {
-                if (editId) {
-                    await updateDoc(doc(db, "requests", editId), requestData);
-                    alert("更新しました");
-                    resetForm();
-                } else {
-                    await addDoc(collection(db, "requests"), requestData);
-                    alert("送信しました");
+                await addDoc(collection(db, "requests"), data);
+                alert("送信しました");
+            } catch (e) { alert("エラー: " + e.message); }
+        };
+
+        // 履歴の描画
+        function startHistoryListener() {
+            onSnapshot(collection(db, "requests"), (snapshot) => {
+                const list = document.getElementById('history-list');
+                let items = [];
+                snapshot.forEach(d => {
+                    const val = d.data();
+                    if (val.status !== "completed") items.push({ id: d.id, ...val });
+                });
+                items.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                
+                list.innerHTML = items.length === 0 ? '<p style="text-align:center; color:#999; font-size:0.8rem;">依頼はありません</p>' : "";
+                items.slice(0, 5).forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    const timeTxt = item.type === 'plan' ? item.scheduledTime.replace('T',' ') : '今すぐ';
+                    div.innerHTML = `
+                        <div style="font-weight:bold; font-size:0.85rem;">📍 ${item.address}</div>
+                        <div class="req-info">
+                            <span>${timeTxt}</span>
+                            <span class="status-tag">${item.status === 'heading' ? '向かっています' : (item.status === 'arrived' ? '到着' : '待機中')}</span>
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn-small btn-del" onclick="deleteReq('${item.id}')">削除</button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            });
+        }
+
+        window.deleteReq = async (id) => {
+            if(confirm("削除しますか？")) await deleteDoc(doc(db, "requests", id));
+        };
+
+        // 起動処理
+        initMap();
+        startHistoryListener();
+        
+        // LIFFはバックグラウンドで処理
+        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
+            if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; });
+        }).catch(e
