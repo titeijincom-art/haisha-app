@@ -186,4 +186,65 @@
             map.setView([lat, lng], 17);
             marker.setLatLng([lat, lng]);
             
-            const btn = document.getElementById('
+            const btn = document.getElementById('submitBtn');
+            btn.innerText = "内容を更新する";
+            btn.classList.add("btn-update");
+            document.getElementById('cancelBtn').style.display = "block";
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        window.resetForm = function() {
+            editId = null;
+            const btn = document.getElementById('submitBtn');
+            btn.innerText = "リクエストを送信";
+            btn.classList.remove("btn-update");
+            document.getElementById('cancelBtn').style.display = "none";
+            document.getElementById('locationType').value = 'current';
+            handleLocationTypeChange();
+        };
+
+        function startHistory() {
+            db.collection("requests").onSnapshot(function(snapshot) {
+                const list = document.getElementById('history-list');
+                let items = [];
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    if(d.status !== "completed") items.push({ id: doc.id, ...d });
+                });
+                items.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                
+                list.innerHTML = '<h4 style="font-size:0.85rem; color:#666;">現在の状況</h4>';
+                if(items.length === 0) list.innerHTML += '<p style="font-size:0.8rem; color:#999;">依頼はありません</p>';
+                
+                items.slice(0, 5).forEach(item => {
+                    const timeLabel = item.type === 'plan' ? (item.scheduledTime || '').replace('T',' ') : '⚡ 今すぐ';
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    div.innerHTML = `
+                        <div style="font-weight:bold; font-size:0.85rem;">📍 ${item.address}</div>
+                        <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
+                            <span>${timeLabel}</span>
+                            <span class="status-tag">${item.status==='heading'?'向かっています':(item.status==='arrived'?'到着':'待機中')}</span>
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn-small" onclick="startEdit('${item.id}', '${item.address}', '${item.type}', '${item.scheduledTime}', ${item.latitude}, ${item.longitude})">修正</button>
+                            <button class="btn-small" style="color:red;" onclick="deleteReq('${item.id}')">削除</button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            });
+        }
+
+        window.deleteReq = function(id) {
+            if(confirm("削除しますか？")) db.collection("requests").doc(id).delete();
+        };
+
+        initMap();
+        startHistory();
+        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
+            if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; });
+        });
+    </script>
+</body>
+</html>
