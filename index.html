@@ -18,34 +18,20 @@
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
         input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; -webkit-appearance: none; }
-        
         .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
         .flex-item { flex: 1; }
-
-        .btn-call { 
-            width: 100%; padding: 16px; border: none; border-radius: 12px; 
-            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer;
-        }
+        .btn-call { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; }
         .btn-update { background: #007bff; }
-        .btn-phone {
-            width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px;
-            font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer;
-            margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;
-        }
-
+        .btn-phone { width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .history-section { margin-top: 15px; }
         .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
-        .request-item { 
-            background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000;
-        }
+        .request-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #000; }
         .req-addr { font-size: 0.85rem; font-weight: bold; margin-bottom: 3px; }
         .req-info { font-size: 0.75rem; color: #777; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .btn-row { display: flex; gap: 10px; }
         .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
         .btn-del { color: #dc3545; border-color: #f8d7da; }
-        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; background: #eee; }
-        .status-waiting { background: #fff3cd; color: #856404; }
+        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; background: #f8f9fa; }
     </style>
 </head>
 <body>
@@ -82,17 +68,15 @@
             </div>
 
             <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
-            
-            <button class="btn-phone" onclick="makePhoneCall()">
-                <span>📞</span> 運転手に電話をかける
-            </button>
-
+            <button class="btn-phone" onclick="makePhoneCall()"><span>📞</span> 運転手に電話をかける</button>
             <button id="cancelEditBtn" class="btn-small" style="display:none; width:100%; margin-top:10px;" onclick="resetForm()">編集をキャンセル</button>
         </div>
 
         <div class="history-section">
-            <div class="history-title">現在の状況</div>
-            <div id="history-list"></div>
+            <div class="history-title">現在の状況（最新）</div>
+            <div id="history-list">
+                <p style="text-align:center; padding:20px; color:#999; font-size:0.8rem;">データを読み込んでいます...</p>
+            </div>
         </div>
     </div>
 
@@ -100,7 +84,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
 
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
@@ -112,10 +96,8 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
-        let map, centerMarker, userLineId = "", userCurrentPos = null;
-        let editId = null;
+        let map, centerMarker, userLineId = "", userCurrentPos = null, editId = null;
 
         window.makePhoneCall = () => {
             if (confirm("090-1376-7364 へ電話をかけますか？")) window.location.href = "tel:09013767364";
@@ -147,21 +129,12 @@
         });
 
         function initMap() {
-            const defLat = 35.6812, defLon = 139.7671;
-            map = L.map('map', { zoomControl: false }).setView([defLat, defLon], 16);
+            map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            centerMarker = L.marker([defLat, defLon]).addTo(map);
+            centerMarker = L.marker([35.6812, 139.7671]).addTo(map);
 
-            map.on('move', () => { 
-                if(document.getElementById("locationType").value === "custom" || editId) {
-                    centerMarker.setLatLng(map.getCenter()); 
-                }
-            });
-            map.on('moveend', () => { 
-                if(document.getElementById("locationType").value === "custom" || editId) {
-                    updateAddress(map.getCenter().lat, map.getCenter().lng); 
-                }
-            });
+            map.on('move', () => { if(document.getElementById("locationType").value === "custom" || editId) centerMarker.setLatLng(map.getCenter()); });
+            map.on('moveend', () => { if(document.getElementById("locationType").value === "custom" || editId) updateAddress(map.getCenter().lat, map.getCenter().lng); });
 
             navigator.geolocation.getCurrentPosition((pos) => {
                 userCurrentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -174,21 +147,20 @@
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'ja' } });
                 const data = await res.json();
                 document.getElementById("address").value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById("address").value = "地図の位置で指定"; }
+            } catch (e) { document.getElementById("address").value = "地点指定中"; }
         }
 
         window.sendRequest = async () => {
-            const center = centerMarker.getLatLng();
+            const pos = centerMarker.getLatLng();
             const type = document.getElementById("requestType").value;
-            const timeInput = document.getElementById("scheduledTime");
-            if (type === "plan") roundTo5Min(timeInput);
+            const time = document.getElementById("scheduledTime").value;
 
             const requestData = {
                 address: document.getElementById("address").value,
-                latitude: center.lat,
-                longitude: center.lng,
+                latitude: pos.lat,
+                longitude: pos.lng,
                 type: type,
-                scheduledTime: type === "plan" ? (timeInput.value || "なし") : "なし",
+                scheduledTime: type === "plan" ? (time || "なし") : "なし",
                 timestamp: new Date()
             };
 
@@ -202,10 +174,9 @@
                     requestData.name = "社長";
                     requestData.status = "waiting";
                     await addDoc(collection(db, "requests"), requestData);
-                    fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
-                    alert("リクエストを送信しました");
+                    alert("送信しました");
                 }
-            } catch (e) { alert("エラー: " + e.message); }
+            } catch (e) { alert("送信エラー: " + e.message); }
         };
 
         window.startEdit = (id, addr, type, time, lat, lng) => {
@@ -226,56 +197,4 @@
 
         window.resetForm = () => {
             editId = null;
-            document.getElementById("submitBtn").innerText = "リクエストを送信";
-            document.getElementById("submitBtn").classList.remove("btn-update");
-            document.getElementById("cancelEditBtn").style.display = "none";
-            document.getElementById("locationType").value = "current";
-            document.getElementById("requestType").value = "now";
-            document.getElementById("timeInputArea").style.display = "none";
-            handleLocationTypeChange();
-        };
-
-        window.deleteRequest = async (id) => {
-            if (confirm("削除しますか？")) await deleteDoc(doc(db, "requests", id));
-        };
-
-        function renderHistory() {
-            // 全データを新しい順に取得
-            const q = query(collection(db, "requests"), orderBy("timestamp", "desc"), limit(5));
-            onSnapshot(q, (snapshot) => {
-                const list = document.getElementById("history-list");
-                list.innerHTML = "";
-                snapshot.forEach(docSnap => {
-                    const d = docSnap.data();
-                    const id = docSnap.id;
-                    if (d.status === "completed") return;
-
-                    const statusTxt = d.status === 'heading' ? '向かっています' : (d.status === 'arrived' ? '到着' : '待機中');
-                    const timeLabel = d.type === 'plan' ? `📅 ${d.scheduledTime.replace('T', ' ')}` : "⚡ 今すぐ";
-
-                    const item = document.createElement("div");
-                    item.className = "request-item";
-                    item.innerHTML = `
-                        <div class="req-addr">📍 ${d.address}</div>
-                        <div class="req-info">
-                            <span>${timeLabel}</span>
-                            <span class="status-tag ${d.status==='waiting'?'status-waiting':''}">${statusTxt}</span>
-                        </div>
-                        <div class="btn-row">
-                            <button class="btn-small" onclick="startEdit('${id}', '${d.address}', '${d.type}', '${d.scheduledTime}', ${d.latitude}, ${d.longitude})">修正</button>
-                            <button class="btn-small btn-del" onclick="deleteRequest('${id}')">削除</button>
-                        </div>
-                    `;
-                    list.appendChild(item);
-                });
-            });
-        }
-
-        initMap();
-        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
-            if (liff.isLoggedIn()) { liff.getProfile().then(p => { userLineId = p.userId; renderHistory(); }); }
-            else { renderHistory(); liff.login(); }
-        });
-    </script>
-</body>
-</html>
+            document.getElementById
