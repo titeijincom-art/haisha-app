@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>タクシー配車（ボス専用）</title>
+    <title>タクシー配車（社長専用）</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -26,16 +26,13 @@
             width: 100%; padding: 16px; border: none; border-radius: 12px; 
             font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer;
         }
-        /* 電話ボタン用のスタイル */
+        .btn-update { background: #007bff; }
         .btn-phone {
             width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px;
             font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer;
             margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;
         }
-        .btn-phone:active { background: #f0fdf4; }
 
-        .btn-update { background: #007bff; }
-        
         .history-section { margin-top: 15px; }
         .history-title { font-size: 0.85rem; font-weight: bold; color: #666; margin-bottom: 8px; padding-left: 5px; }
         .request-item { 
@@ -47,7 +44,8 @@
         .btn-row { display: flex; gap: 10px; }
         .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer; }
         .btn-del { color: #dc3545; border-color: #f8d7da; }
-        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; }
+        .status-tag { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.7rem; background: #eee; }
+        .status-waiting { background: #fff3cd; color: #856404; }
     </style>
 </head>
 <body>
@@ -114,15 +112,13 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const gasUrl = "https://script.google.com/macros/s/AKfycbx0-lafxReulEofMDMPhJA3maxeIcddrz5lJdWKthJQ9CN5eNExMeunYH75C_Yezr0MVg/exec";
 
         let map, centerMarker, userLineId = "", userCurrentPos = null;
         let editId = null;
 
-        // 電話発信関数
         window.makePhoneCall = () => {
-            if (confirm("090-1376-7364 へ電話をかけますか？")) {
-                window.location.href = "tel:09013767364";
-            }
+            if (confirm("090-1376-7364 へ電話をかけますか？")) window.location.href = "tel:09013767364";
         };
 
         window.roundTo5Min = (input) => {
@@ -192,7 +188,7 @@
                 latitude: center.lat,
                 longitude: center.lng,
                 type: type,
-                scheduledTime: timeInput.value || "なし",
+                scheduledTime: type === "plan" ? (timeInput.value || "なし") : "なし",
                 timestamp: new Date()
             };
 
@@ -206,7 +202,8 @@
                     requestData.name = "社長";
                     requestData.status = "waiting";
                     await addDoc(collection(db, "requests"), requestData);
-                    alert("送信しました");
+                    fetch(gasUrl, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "【新規】", ...requestData }) });
+                    alert("リクエストを送信しました");
                 }
             } catch (e) { alert("エラー: " + e.message); }
         };
@@ -218,18 +215,23 @@
             document.getElementById("address").value = addr;
             document.getElementById("requestType").value = type;
             document.getElementById("timeInputArea").style.display = type === "plan" ? "block" : "none";
-            document.getElementById("scheduledTime").value = time !== "なし" ? time : "";
+            document.getElementById("scheduledTime").value = (time && time !== "なし") ? time : "";
             map.setView([lat, lng], 17);
             centerMarker.setLatLng([lat, lng]);
             document.getElementById("submitBtn").innerText = "内容を更新する";
+            document.getElementById("submitBtn").classList.add("btn-update");
             document.getElementById("cancelEditBtn").style.display = "block";
+            window.scrollTo(0, 0);
         };
 
         window.resetForm = () => {
             editId = null;
             document.getElementById("submitBtn").innerText = "リクエストを送信";
+            document.getElementById("submitBtn").classList.remove("btn-update");
             document.getElementById("cancelEditBtn").style.display = "none";
             document.getElementById("locationType").value = "current";
+            document.getElementById("requestType").value = "now";
+            document.getElementById("timeInputArea").style.display = "none";
             handleLocationTypeChange();
         };
 
@@ -238,6 +240,7 @@
         };
 
         function renderHistory() {
+            // 全データを新しい順に取得
             const q = query(collection(db, "requests"), orderBy("timestamp", "desc"), limit(5));
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById("history-list");
@@ -246,13 +249,17 @@
                     const d = docSnap.data();
                     const id = docSnap.id;
                     if (d.status === "completed") return;
+
+                    const statusTxt = d.status === 'heading' ? '向かっています' : (d.status === 'arrived' ? '到着' : '待機中');
+                    const timeLabel = d.type === 'plan' ? `📅 ${d.scheduledTime.replace('T', ' ')}` : "⚡ 今すぐ";
+
                     const item = document.createElement("div");
                     item.className = "request-item";
                     item.innerHTML = `
                         <div class="req-addr">📍 ${d.address}</div>
                         <div class="req-info">
-                            <span>${d.type==='plan'?d.scheduledTime.replace('T',' '):'今すぐ'}</span>
-                            <span class="status-tag">${d.status==='heading'?'向かっています':(d.status==='arrived'?'到着':'待機中')}</span>
+                            <span>${timeLabel}</span>
+                            <span class="status-tag ${d.status==='waiting'?'status-waiting':''}">${statusTxt}</span>
                         </div>
                         <div class="btn-row">
                             <button class="btn-small" onclick="startEdit('${id}', '${d.address}', '${d.type}', '${d.scheduledTime}', ${d.latitude}, ${d.longitude})">修正</button>
