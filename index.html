@@ -6,54 +6,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 35vh; width: 100%; background: #ddd; position: relative; z-index: 1; }
+        #map { height: 35vh; width: 100%; background: #eee; }
         .container { padding: 10px; max-width: 500px; margin: auto; }
-        .form-card { 
-            background: white; padding: 20px; border-radius: 20px; 
-            box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
-            margin-top: -25px; position: relative; z-index: 1000; 
-        }
+        .form-card { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 -5px 15px rgba(0,0,0,0.1); margin-top: -25px; position: relative; z-index: 1000; }
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; -webkit-appearance: none; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
         .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
         .flex-item { flex: 1; }
         .btn-call { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; }
-        .btn-phone { width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .history-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; border-left: 5px solid #000; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .req-info { display: flex; justify-content: space-between; font-size: 0.75rem; color: #777; margin-top: 5px; }
-        .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-        .btn-row { display: flex; gap: 10px; margin-top: 10px; }
-        .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; }
-        #debug-log { font-size: 10px; color: #666; padding: 10px; }
+        .btn-phone { width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+        .history-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; border-left: 5px solid #000; }
+        .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="map">地図を読み込んでいます...</div>
+    <div id="map"></div>
 
     <div class="container">
-        <div id="debug-log">Status: Initializing...</div>
-
         <div class="form-card">
             <div class="input-group">
-                <label>場所の指定</label>
+                <label>お迎え場所</label>
                 <select id="locationType" onchange="handleLocationTypeChange()">
                     <option value="current">現在地に呼び出す</option>
                     <option value="custom">地図で場所を指定する</option>
                 </select>
             </div>
             <div class="input-group">
-                <label>お迎え住所</label>
-                <input type="text" id="address" value="取得中..." readonly>
+                <input type="text" id="address" value="住所を取得中..." readonly>
             </div>
             <div class="flex-box">
                 <div class="flex-item">
                     <label>利用タイプ</label>
-                    <select id="requestType" onchange="toggleTimeInput()">
+                    <select id="requestType" onchange="document.getElementById('timeInputArea').style.display = (this.value=='plan'?'block':'none')">
                         <option value="now">今すぐ</option>
                         <option value="plan">予約</option>
                     </select>
@@ -63,22 +54,15 @@
                     <input type="datetime-local" id="scheduledTime" step="300">
                 </div>
             </div>
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
-            <button class="btn-phone" onclick="window.location.href='tel:09013767364'">📞 運転手に電話をかける</button>
+            <button class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+            <a href="tel:09013767364" class="btn-phone">📞 運転手に電話をかける</a>
         </div>
 
-        <div style="margin-top:20px;">
-            <h4 style="font-size:0.85rem; color:#666; margin-bottom:10px;">現在の状況</h4>
-            <div id="history-list">
-                <p style="text-align:center; color:#999; font-size:0.8rem;">読み込み中...</p>
-            </div>
-        </div>
+        <div id="history-list" style="margin-top:20px;"></div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore.js";
-
+    <script>
+        // --- 設定 ---
         const firebaseConfig = { 
             apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
             authDomain: "loser-12855.firebaseapp.com", 
@@ -88,44 +72,32 @@
             appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
         };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        let map, marker, userPos = { lat: 35.6812, lng: 139.7671 }; // デフォルト東京駅
+        // --- 初期化 ---
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        let map, marker, userPos = { lat: 35.6812, lng: 139.7671 };
         let userLineId = "guest";
 
-        function log(msg) { document.getElementById('debug-log').innerText = "Status: " + msg; }
-
-        // 1. 地図の初期化（最優先）
+        // 地図を即座に表示
         function initMap() {
-            log("Map loading...");
             map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             marker = L.marker([userPos.lat, userPos.lng]).addTo(map);
 
-            map.on('move', () => {
+            map.on('move', function() {
                 if(document.getElementById('locationType').value === 'custom') marker.setLatLng(map.getCenter());
             });
-            map.on('moveend', () => {
+            map.on('moveend', function() {
                 if(document.getElementById('locationType').value === 'custom') fetchAddr(map.getCenter());
             });
 
-            // 2. 位置情報の取得（5秒でタイムアウト）
-            const geoTimeout = setTimeout(() => {
-                log("GPS Timeout - Using default location");
-                fetchAddr(userPos);
-            }, 5000);
-
-            navigator.geolocation.getCurrentPosition((pos) => {
-                clearTimeout(geoTimeout);
+            // 現在地取得
+            navigator.geolocation.getCurrentPosition(function(pos) {
                 userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 map.setView([userPos.lat, userPos.lng], 16);
                 marker.setLatLng([userPos.lat, userPos.lng]);
                 fetchAddr(userPos);
-                log("GPS Success");
-            }, () => {
-                log("GPS Denied - Using default");
-                fetchAddr(userPos);
-            });
+            }, function() { fetchAddr(userPos); }, { enableHighAccuracy: true });
         }
 
         async function fetchAddr(pos) {
@@ -133,10 +105,10 @@
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`, { headers: { 'Accept-Language': 'ja' } });
                 const data = await res.json();
                 document.getElementById('address').value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById('address').value = "地点指定中"; }
+            } catch (e) { document.getElementById('address').value = "地点指定完了"; }
         }
 
-        window.handleLocationTypeChange = () => {
+        window.handleLocationTypeChange = function() {
             const isCustom = document.getElementById('locationType').value === 'custom';
             if (!isCustom) {
                 map.setView([userPos.lat, userPos.lng], 16);
@@ -148,11 +120,7 @@
             }
         };
 
-        window.toggleTimeInput = () => {
-            document.getElementById('timeInputArea').style.display = document.getElementById('requestType').value === 'plan' ? 'block' : 'none';
-        };
-
-        window.sendRequest = async () => {
+        window.sendRequest = async function() {
             const pos = marker.getLatLng();
             const type = document.getElementById('requestType').value;
             const data = {
@@ -162,56 +130,57 @@
                 type: type,
                 scheduledTime: type === 'plan' ? document.getElementById('scheduledTime').value : "なし",
                 status: "waiting",
-                timestamp: new Date(),
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                 userId: userLineId,
                 name: "社長"
             };
             try {
-                await addDoc(collection(db, "requests"), data);
+                await db.collection("requests").add(data);
                 alert("送信しました");
             } catch (e) { alert("エラー: " + e.message); }
         };
 
-        // 履歴の描画
-        function startHistoryListener() {
-            onSnapshot(collection(db, "requests"), (snapshot) => {
+        // 履歴表示
+        function startHistory() {
+            db.collection("requests").onSnapshot(function(snapshot) {
                 const list = document.getElementById('history-list');
                 let items = [];
-                snapshot.forEach(d => {
-                    const val = d.data();
-                    if (val.status !== "completed") items.push({ id: d.id, ...val });
+                snapshot.forEach(doc => {
+                    const d = doc.data();
+                    if(d.status !== "completed") items.push({ id: doc.id, ...d });
                 });
-                items.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                items.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
-                list.innerHTML = items.length === 0 ? '<p style="text-align:center; color:#999; font-size:0.8rem;">依頼はありません</p>' : "";
+                list.innerHTML = '<h4 style="font-size:0.85rem; color:#666;">現在の状況</h4>';
+                if(items.length === 0) list.innerHTML += '<p style="font-size:0.8rem; color:#999;">依頼はありません</p>';
+                
                 items.slice(0, 5).forEach(item => {
+                    const timeTxt = item.type === 'plan' ? (item.scheduledTime || '').replace('T',' ') : '今すぐ';
                     const div = document.createElement('div');
                     div.className = 'history-item';
-                    const timeTxt = item.type === 'plan' ? item.scheduledTime.replace('T',' ') : '今すぐ';
                     div.innerHTML = `
                         <div style="font-weight:bold; font-size:0.85rem;">📍 ${item.address}</div>
-                        <div class="req-info">
+                        <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
                             <span>${timeTxt}</span>
-                            <span class="status-tag">${item.status === 'heading' ? '向かっています' : (item.status === 'arrived' ? '到着' : '待機中')}</span>
+                            <span class="status-tag">${item.status==='heading'?'向かっています':(item.status==='arrived'?'到着':'待機中')}</span>
                         </div>
-                        <div class="btn-row">
-                            <button class="btn-small btn-del" onclick="deleteReq('${item.id}')">削除</button>
-                        </div>
+                        <button style="margin-top:10px; width:100%; padding:5px; font-size:0.7rem; border:1px solid #ddd; background:#fff; border-radius:5px;" onclick="deleteReq('${item.id}')">削除</button>
                     `;
                     list.appendChild(div);
                 });
             });
         }
 
-        window.deleteReq = async (id) => {
-            if(confirm("削除しますか？")) await deleteDoc(doc(db, "requests", id));
+        window.deleteReq = function(id) {
+            if(confirm("削除しますか？")) db.collection("requests").doc(id).delete();
         };
 
-        // 起動処理
+        // 実行開始
         initMap();
-        startHistoryListener();
-        
-        // LIFFはバックグラウンドで処理
+        startHistory();
         liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
             if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; });
-        }).catch(e
+        });
+    </script>
+</body>
+</html>
