@@ -11,217 +11,197 @@
     <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; margin: 0; background: #f4f4f4; color: #333; }
-        #map { height: 45vh; width: 100%; background: #eee; } /* 地図を少し広くしました */
+        #map { height: 40vh; width: 100%; background: #eee; }
         .container { padding: 10px; max-width: 500px; margin: auto; box-sizing: border-box; }
-        .form-card { 
-            background: white; padding: 20px; border-radius: 20px; 
-            box-shadow: 0 -5px 15px rgba(0,0,0,0.1); 
-            margin-top: -25px; position: relative; z-index: 1000; 
-        }
+        .form-card { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 -5px 15px rgba(0,0,0,0.1); margin-top: -25px; position: relative; z-index: 1000; }
         .input-group { margin-bottom: 12px; }
         label { display: block; font-size: 0.75rem; color: #999; margin-bottom: 5px; }
-        input, select { 
-            width: 100%; padding: 12px; border: 1px solid #eee; 
-            border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; 
-        }
-        .flex-box { display: flex; gap: 10px; margin-bottom: 12px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #eee; border-radius: 10px; box-sizing: border-box; font-size: 1rem; background: #f9f9f9; }
+        .flex-box { display: flex; gap: 8px; }
         .flex-item { flex: 1; }
-        .btn-call { 
-            width: 100%; padding: 16px; border: none; border-radius: 12px; 
-            font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; 
-        }
-        .btn-phone { 
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; 
-            font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; 
-            margin-top: 10px; text-decoration: none; box-sizing: border-box; 
-        }
+        .btn-call { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; background: #000; color: #fff; cursor: pointer; }
+        .btn-phone { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px; border: 1px solid #28a745; border-radius: 12px; font-size: 1rem; font-weight: bold; background: #fff; color: #28a745; margin-top: 10px; text-decoration: none; box-sizing: border-box; }
         .history-item { background: white; border-radius: 12px; padding: 12px; margin-bottom: 8px; border-left: 5px solid #000; }
         .status-tag { background: #eee; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
         .use-tag { font-size: 0.7rem; color: #fff; background: #007bff; padding: 2px 6px; border-radius: 4px; margin-right: 5px; }
-        .btn-small { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 0.75rem; cursor: pointer;}
     </style>
 </head>
 <body>
 
-    <div id="map"></div>
+<div id="map"></div>
 
-    <div class="container">
-        <div class="form-card">
-            <div class="input-group">
-                <label>場所の指定</label>
-                <select id="locationType" onchange="handleLocationTypeChange()">
-                    <option value="current">現在地に呼び出す</option>
-                    <option value="custom">地図で場所を指定する</option>
-                </select>
-            </div>
-            <div class="input-group">
-                <label>この場所の用途</label>
-                <select id="useCase">
-                    <option value="pickup">ここに配車する（お迎え）</option>
-                    <option value="dropoff">ここまで送迎する（目的地）</option>
-                </select>
-            </div>
-            <div class="input-group">
-                <input type="text" id="address" value="住所を取得中..." readonly>
-            </div>
+<div class="container">
+    <div class="form-card">
+        <div class="input-group">
+            <label>場所と用途</label>
             <div class="flex-box">
-                <div class="flex-item">
-                    <label>利用タイプ</label>
-                    <select id="requestType" onchange="document.getElementById('timeInputArea').style.display = (this.value=='plan'?'block':'none')">
-                        <option value="now">今すぐ</option>
-                        <option value="plan">予約</option>
-                    </select>
-                </div>
-                <div id="timeInputArea" class="flex-item" style="display:none;">
-                    <label>予約日時</label>
-                    <input type="datetime-local" id="scheduledTime" step="300">
-                </div>
+                <select id="locationType" onchange="handleLocationTypeChange()" style="flex:1.5;">
+                    <option value="current">現在地</option>
+                    <option value="custom">地図指定</option>
+                </select>
+                <select id="useCase" style="flex:2;">
+                    <option value="pickup">ここにお迎え</option>
+                    <option value="dropoff">ここまで送迎</option>
+                </select>
             </div>
-            <button id="submitBtn" class="btn-call" onclick="sendRequest()">リクエストを送信</button>
-            <a href="tel:09013767364" class="btn-phone">📞 運転手に電話をかける</a>
         </div>
 
-        <div id="history-list" style="margin-top:20px;"></div>
+        <div class="input-group">
+            <input type="text" id="address" value="住所を取得中..." readonly>
+        </div>
+
+        <div class="input-group">
+            <label>利用タイプ</label>
+            <select id="requestType" onchange="toggleTimeInput()">
+                <option value="now">今すぐ</option>
+                <option value="plan">予約</option>
+            </select>
+        </div>
+
+        <div id="timeInputArea" style="display:none; background: #f0f7ff; padding: 10px; border-radius: 10px; margin-bottom: 12px;">
+            <label>予約日時</label>
+            <div class="flex-box" style="margin-bottom: 5px;">
+                <select id="resDay" class="flex-item"></select>
+            </div>
+            <div class="flex-box">
+                <select id="resHour" class="flex-item"></select>
+                <select id="resMin" class="flex-item"></select>
+            </div>
+        </div>
+
+        <button class="btn-call" onclick="sendRequest()">リクエストを送信</button>
+        <a href="tel:09013767364" class="btn-phone">📞 運転手に電話をかける</a>
     </div>
 
-    <script>
-        const firebaseConfig = { 
-            apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
-            authDomain: "loser-12855.firebaseapp.com", 
-            projectId: "loser-12855", 
-            storageBucket: "loser-12855.firebasestorage.app", 
-            messagingSenderId: "375707924539", 
-            appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
-        };
+    <div id="history-list" style="margin-top:20px;"></div>
+</div>
 
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        let map, marker, taxiMarker, userPos = { lat: 35.6812, lng: 139.7671 };
-        let userLineId = "guest";
+<script>
+    const firebaseConfig = { 
+        apiKey: "AIzaSyBV6WrubOa8gJdX69sZl3i3c1kcXgLL79A", 
+        authDomain: "loser-12855.firebaseapp.com", 
+        projectId: "loser-12855", 
+        storageBucket: "loser-12855.firebasestorage.app", 
+        messagingSenderId: "375707924539", 
+        appId: "1:375707924539:web:1f9ff3f0098f9ebf95041e" 
+    };
 
-        // 車のアイコン設定
-        const taxiIcon = L.divIcon({
-            html: '<div style="font-size:24px;">🚕</div>',
-            className: 'taxi-icon',
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    let map, marker, taxiMarker, userPos = { lat: 35.6812, lng: 139.7671 };
+    let userLineId = "guest";
+
+    // プルダウンの選択肢を生成
+    function setupTimeSelects() {
+        const daySel = document.getElementById('resDay');
+        const hourSel = document.getElementById('resHour');
+        const minSel = document.getElementById('resMin');
+        
+        // 日付（今日・明日・明後日）
+        const days = ["今日", "明日", "明後日"];
+        const now = new Date();
+        for(let i=0; i<3; i++) {
+            let d = new Date(); d.setDate(now.getDate() + i);
+            let dateStr = `${d.getMonth()+1}/${d.getDate()} (${days[i]})`;
+            daySel.options[i] = new Option(dateStr, d.toLocaleDateString('sv-SE'));
+        }
+        // 時間 (0-23)
+        for(let h=0; h<24; h++) hourSel.options[h] = new Option(h + "時", h.toString().padStart(2, '0'));
+        hourSel.value = now.getHours().toString().padStart(2, '0');
+        // 分 (5分刻み)
+        for(let m=0, i=0; m<60; m+=5, i++) minSel.options[i] = new Option(m + "分", m.toString().padStart(2, '0'));
+    }
+
+    function initMap() {
+        map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        marker = L.marker([userPos.lat, userPos.lng]).addTo(map);
+        map.on('move', () => { if(document.getElementById('locationType').value === 'custom') marker.setLatLng(map.getCenter()); });
+        map.on('moveend', () => { if(document.getElementById('locationType').value === 'custom') fetchAddr(map.getCenter()); });
+
+        navigator.geolocation.getCurrentPosition(pos => {
+            userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            map.setView([userPos.lat, userPos.lng], 16);
+            marker.setLatLng([userPos.lat, userPos.lng]);
+            fetchAddr(userPos);
+        }, null, { enableHighAccuracy: true });
+
+        // タクシー位置監視
+        db.collection("driverLocation").doc("current").onSnapshot(doc => {
+            if (doc.exists) {
+                const data = doc.data();
+                const pos = [data.latitude, data.longitude];
+                if (!taxiMarker) taxiMarker = L.marker(pos, { icon: L.divIcon({ html: '<div style="font-size:24px;">🚕</div>', className: 't-i', iconSize: [30, 30] }) }).addTo(map);
+                else taxiMarker.setLatLng(pos);
+            }
         });
+    }
 
-        function initMap() {
-            map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lng], 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            marker = L.marker([userPos.lat, userPos.lng]).addTo(map);
+    async function fetchAddr(pos) {
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`, { headers: { 'Accept-Language': 'ja' } });
+            const data = await res.json();
+            document.getElementById('address').value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
+        } catch (e) { document.getElementById('address').value = "地点指定完了"; }
+    }
 
-            map.on('move', function() {
-                if(document.getElementById('locationType').value === 'custom') marker.setLatLng(map.getCenter());
-            });
-            map.on('moveend', function() {
-                if(document.getElementById('locationType').value === 'custom') fetchAddr(map.getCenter());
-            });
+    window.toggleTimeInput = () => { document.getElementById('timeInputArea').style.display = document.getElementById('requestType').value === 'plan' ? 'block' : 'none'; };
 
-            navigator.geolocation.getCurrentPosition(function(pos) {
-                userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                map.setView([userPos.lat, userPos.lng], 16);
-                marker.setLatLng([userPos.lat, userPos.lng]);
-                fetchAddr(userPos);
-            }, function() { fetchAddr(userPos); }, { enableHighAccuracy: true });
+    window.handleLocationTypeChange = () => {
+        const isCustom = document.getElementById('locationType').value === 'custom';
+        if (!isCustom) {
+            map.setView([userPos.lat, userPos.lng], 16);
+            marker.setLatLng([userPos.lat, userPos.lng]);
+            map.dragging.disable();
+            fetchAddr(userPos);
+        } else { map.dragging.enable(); }
+    };
 
-            // ★ 車の位置をリアルタイム監視
-            watchTaxiLocation();
+    window.sendRequest = async function() {
+        const pos = marker.getLatLng();
+        const type = document.getElementById('requestType').value;
+        let timeStr = "なし";
+        if (type === 'plan') {
+            timeStr = `${document.getElementById('resDay').value} ${document.getElementById('resHour').value}:${document.getElementById('resMin').value}`;
         }
-
-        // 運転手の位置を監視する関数
-        function watchTaxiLocation() {
-            db.collection("driverLocation").doc("current").onSnapshot((doc) => {
-                if (doc.exists) {
-                    const data = doc.data();
-                    const taxiPos = [data.latitude, data.longitude];
-                    
-                    if (!taxiMarker) {
-                        taxiMarker = L.marker(taxiPos, { icon: taxiIcon }).addTo(map).bindPopup("タクシーの現在地");
-                    } else {
-                        taxiMarker.setLatLng(taxiPos);
-                    }
-                }
-            });
-        }
-
-        // --- 以下、既存の関数を維持 ---
-        async function fetchAddr(pos) {
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`, { headers: { 'Accept-Language': 'ja' } });
-                const data = await res.json();
-                document.getElementById('address').value = data.display_name.split(',').slice(0, 3).join('') || "指定地点";
-            } catch (e) { document.getElementById('address').value = "地点指定完了"; }
-        }
-
-        window.handleLocationTypeChange = function() {
-            const isCustom = document.getElementById('locationType').value === 'custom';
-            if (!isCustom) {
-                map.setView([userPos.lat, userPos.lng], 16);
-                marker.setLatLng([userPos.lat, userPos.lng]);
-                map.dragging.disable();
-                fetchAddr(userPos);
-            } else { map.dragging.enable(); }
+        const data = {
+            address: document.getElementById('address').value,
+            latitude: pos.lat, longitude: pos.lng,
+            type: type, useCase: document.getElementById('useCase').value,
+            scheduledTime: timeStr, status: "waiting",
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            userId: userLineId, name: "社長"
         };
+        try { await db.collection("requests").add(data); alert("送信しました"); } catch (e) { alert("エラー: " + e.message); }
+    };
 
-        window.sendRequest = async function() {
-            const pos = marker.getLatLng();
-            const type = document.getElementById('requestType').value;
-            const useCase = document.getElementById('useCase').value;
-            const data = {
-                address: document.getElementById('address').value,
-                latitude: pos.lat,
-                longitude: pos.lng,
-                type: type,
-                useCase: useCase,
-                scheduledTime: type === 'plan' ? document.getElementById('scheduledTime').value : "なし",
-                status: "waiting",
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                userId: userLineId,
-                name: "社長"
-            };
-            try {
-                await db.collection("requests").add(data);
-                alert("送信しました");
-            } catch (e) { alert("エラー: " + e.message); }
-        };
-
-        function startHistory() {
-            db.collection("requests").onSnapshot(function(snapshot) {
-                const list = document.getElementById('history-list');
-                let items = [];
-                snapshot.forEach(doc => {
-                    const d = doc.data();
-                    if(d.status !== "completed") items.push({ id: doc.id, ...d });
-                });
-                items.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-                list.innerHTML = '<h4 style="font-size:0.85rem; color:#666;">現在の状況</h4>';
-                items.slice(0, 5).forEach(item => {
-                    const useTxt = item.useCase === 'dropoff' ? '目的地' : 'お迎え';
-                    const div = document.createElement('div');
-                    div.className = 'history-item';
-                    div.innerHTML = `
-                        <div style="font-weight:bold; font-size:0.85rem;"><span class="use-tag">${useTxt}</span>📍 ${item.address}</div>
-                        <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
-                            <span>${(item.scheduledTime||'').replace('T',' ')}</span>
-                            <span class="status-tag">${item.status==='heading'?'向かっています':(item.status==='arrived'?'到着':'待機中')}</span>
-                        </div>
-                        <button class="btn-small" style="color:red; margin-top:10px; width:100%; border:1px solid #ddd; background:#fff; border-radius:5px;" onclick="deleteReq('${item.id}')">削除</button>
-                    `;
-                    list.appendChild(div);
-                });
+    function startHistory() {
+        db.collection("requests").onSnapshot(snapshot => {
+            const list = document.getElementById('history-list');
+            let items = [];
+            snapshot.forEach(doc => { if(doc.data().status !== "completed") items.push({ id: doc.id, ...doc.data() }); });
+            items.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+            list.innerHTML = '<h4 style="font-size:0.85rem; color:#666;">現在の状況</h4>';
+            items.slice(0, 5).forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'history-item';
+                div.innerHTML = `
+                    <div style="font-weight:bold; font-size:0.85rem;"><span class="use-tag">${item.useCase==='dropoff'?'目的地':'お迎え'}</span>📍 ${item.address}</div>
+                    <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.75rem; color:#777;">
+                        <span>${item.scheduledTime === 'なし' ? '⚡ 今すぐ' : item.scheduledTime}</span>
+                        <span class="status-tag">${item.status==='heading'?'移動中':(item.status==='arrived'?'到着':'待機中')}</span>
+                    </div>
+                    <button style="margin-top:8px; width:100%; border:1px solid #ddd; background:#fff; padding:5px; border-radius:5px; color:red; font-size:0.7rem;" onclick="db.collection('requests').doc('${item.id}').delete()">削除</button>
+                `;
+                list.appendChild(div);
             });
-        }
-
-        window.deleteReq = function(id) { if(confirm("削除しますか？")) db.collection("requests").doc(id).delete(); };
-
-        initMap();
-        startHistory();
-        liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => {
-            if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; });
         });
-    </script>
+    }
+
+    setupTimeSelects();
+    initMap();
+    startHistory();
+    liff.init({ liffId: "2004245903-kY3aEEnQ" }).then(() => { if (liff.isLoggedIn()) liff.getProfile().then(p => { userLineId = p.userId; }); });
+</script>
 </body>
 </html>
